@@ -4,5 +4,8 @@
   "type": "module",
   "scripts": {
     "sync": "node sync.js"
+  },
+  "dependencies": {
+    "playwright": "^1.42.0"
   }
 }
