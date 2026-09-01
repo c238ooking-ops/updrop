@@ -1,4 +1,4 @@
-const fs = require('fs');
+import fs from 'fs';
 
 // Set your uDrop public folder URL or shared link here
 const UDROP_FOLDER_URL = "https://www.udrop.com/folder/55aadbef3484e0d08a583dd6016f5ace/M";
