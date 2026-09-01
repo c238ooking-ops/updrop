@@ -1,45 +1,45 @@
 const STREAMS_DB = {
-  // Spider-Man 
-  "tt0145487": {
+  // Spider Man (2002) Open Matte 35mm 1440p Scan 
+  "custom_ado47z": {
     name: "uDrop",
     title: "Spider-Man_(2002)_Open_Matte_35mm_1440p_Scan.mkv",
     url: "https://www.udrop.com/file/PANt/Spider-Man_(2002)_Open_Matte_35mm_1440p_Scan.mkv",
     meta: {
-      name: "Spider-Man",
-      poster: "https://images.metahub.space/poster/small/tt0145487/img",
+      name: "Spider Man (2002) Open Matte 35mm 1440p Scan",
+      poster: "",
       type: "movie"
     }
   },
-  // The Class 
-  "tt0988108": {
+  // Baaghi 1990    5 1 Team DDH RG 
+  "custom_twvjfv": {
     name: "uDrop",
     title: "Baaghi_1990_DvDRip_x264_AAC_5.1_Team_DDH~RG.mp4",
     url: "https://www.udrop.com/file/PB12/Baaghi_1990_DvDRip_x264_AAC_5.1_Team_DDH~RG.mp4",
     meta: {
-      name: "The Class",
-      poster: "https://images.metahub.space/poster/small/tt0988108/img",
+      name: "Baaghi 1990    5 1 Team DDH RG",
+      poster: "",
       type: "movie"
     }
   },
-  // Baaghi 
-  "tt4864932": {
+  // Baaghi  2016 
+  "custom_lsfjty": {
     name: "uDrop",
     title: "Baaghi_1080p_2016.mp4",
     url: "https://www.udrop.com/file/PB17/Baaghi_1080p_2016.mp4",
     meta: {
-      name: "Baaghi",
-      poster: "https://m.media-amazon.com/images/M/MV5BMzczODY2ZmMtYjU4MS00MzFjLTk2YTAtYTMyMmFlNTk3OTIyXkEyXkFqcGc@._V1_SX250.jpg",
+      name: "Baaghi  2016",
+      poster: "",
       type: "movie"
     }
   },
-  // Mutiny 
-  "tt32338669": {
+  // Mutiny 2026  WEBRip   [YTS GG   YTS BZ] 
+  "custom_oipx9s": {
     name: "uDrop",
     title: "Mutiny.2026.720p.WEBRip.x264.AAC-[YTS.GG_-_YTS.BZ].mp4",
     url: "https://www.udrop.com/file/PB4h/Mutiny.2026.720p.WEBRip.x264.AAC-[YTS.GG_-_YTS.BZ].mp4",
     meta: {
-      name: "Mutiny",
-      poster: "https://images.metahub.space/poster/small/tt32338669/img",
+      name: "Mutiny 2026  WEBRip   [YTS GG   YTS BZ]",
+      poster: "",
       type: "movie"
     }
   },
@@ -54,19 +54,19 @@ const STREAMS_DB = {
       type: "movie"
     }
   },
-  // Teenage Mutant Ninja Turtles 
-  "tt1291150": {
+  // Teenage Mutant Ninja Turtles Open Matte 
+  "custom_g792t8": {
     name: "uDrop",
     title: "Teenage_Mutant_Ninja_Turtles_Open_Matte.mkv",
     url: "https://www.udrop.com/file/PB5i/Teenage_Mutant_Ninja_Turtles_Open_Matte.mkv",
     meta: {
-      name: "Teenage Mutant Ninja Turtles",
-      poster: "https://m.media-amazon.com/images/M/MV5BNjUzODQ5MDY5NV5BMl5BanBnXkFtZTgwOTc1NzcyMjE@._V1_SX250.jpg",
+      name: "Teenage Mutant Ninja Turtles Open Matte",
+      poster: "",
       type: "movie"
     }
   },
   // 246fd974b9e65d77cded62417eef1cba 
-  "custom_shqgs3": {
+  "custom_yxp0u5": {
     name: "uDrop",
     title: "246fd974b9e65d77cded62417eef1cba",
     url: "https://www.udrop.com/file/PB5j/246fd974b9e65d77cded62417eef1cba",
@@ -76,14 +76,14 @@ const STREAMS_DB = {
       type: "movie"
     }
   },
-  // Taxi Driver 
-  "tt0075314": {
+  // Taxi Driver (1976) {edition 35mm Open Matte (Robs)} (subs) 
+  "custom_mniaa8": {
     name: "uDrop",
     title: "Taxi_Driver_(1976)_{edition-35mm_Open_Matte_(Robs)}_(subs).mp4",
     url: "https://www.udrop.com/file/PB8c/Taxi_Driver_(1976)_{edition-35mm_Open_Matte_(Robs)}_(subs).mp4",
     meta: {
-      name: "Taxi Driver",
-      poster: "https://images.metahub.space/poster/small/tt0075314/img",
+      name: "Taxi Driver (1976) {edition 35mm Open Matte (Robs)} (subs)",
+      poster: "",
       type: "movie"
     }
   },
