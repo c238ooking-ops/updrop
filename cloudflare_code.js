@@ -1,49 +1,49 @@
 const STREAMS_DB = {
-  // Spider Man (2002) Open Matte 35mm 1440p Scan 
-  "custom_ado47z": {
+  // Spider-Man 3  
+  "tt0413300": {
     name: "uDrop",
     title: "Spider-Man_(2002)_Open_Matte_35mm_1440p_Scan.mkv",
     url: "https://www.udrop.com/file/PANt/Spider-Man_(2002)_Open_Matte_35mm_1440p_Scan.mkv",
     meta: {
-      name: "Spider Man (2002) Open Matte 35mm 1440p Scan",
-      poster: "",
+      name: "Spider-Man 3",
+      poster: "https://m.media-amazon.com/images/M/MV5BODE2NzNhMDctYjUzMC00Y2M5LWI2Y2EtODJkZTFjN2Y5ODlmXkEyXkFqcGc@._V1_SX250.jpg",
       type: "movie"
     }
   },
-  // Baaghi 1990    5 1 Team DDH RG 
-  "custom_twvjfv": {
+  // Baaghi: A Rebel for Love (1990) 
+  "tt0099080": {
     name: "uDrop",
     title: "Baaghi_1990_DvDRip_x264_AAC_5.1_Team_DDH~RG.mp4",
     url: "https://www.udrop.com/file/PB12/Baaghi_1990_DvDRip_x264_AAC_5.1_Team_DDH~RG.mp4",
     meta: {
-      name: "Baaghi 1990    5 1 Team DDH RG",
-      poster: "",
+      name: "Baaghi: A Rebel for Love",
+      poster: "https://m.media-amazon.com/images/M/MV5BZDkxZGE5MWUtYWE4NC00MzFmLWFjNTYtMDFhOTczMzdhMDJiXkEyXkFqcGc@._V1_SX250.jpg",
       type: "movie"
     }
   },
-  // Baaghi  2016 
-  "custom_lsfjty": {
+  // Baaghi (2016) 
+  "tt4864932": {
     name: "uDrop",
     title: "Baaghi_1080p_2016.mp4",
     url: "https://www.udrop.com/file/PB17/Baaghi_1080p_2016.mp4",
     meta: {
-      name: "Baaghi  2016",
-      poster: "",
+      name: "Baaghi",
+      poster: "https://m.media-amazon.com/images/M/MV5BMzczODY2ZmMtYjU4MS00MzFjLTk2YTAtYTMyMmFlNTk3OTIyXkEyXkFqcGc@._V1_SX250.jpg",
       type: "movie"
     }
   },
-  // Mutiny 2026  WEBRip   [YTS GG   YTS BZ] 
-  "custom_oipx9s": {
+  // Mutiny (2026) 
+  "tt32338669": {
     name: "uDrop",
     title: "Mutiny.2026.720p.WEBRip.x264.AAC-[YTS.GG_-_YTS.BZ].mp4",
     url: "https://www.udrop.com/file/PB4h/Mutiny.2026.720p.WEBRip.x264.AAC-[YTS.GG_-_YTS.BZ].mp4",
     meta: {
-      name: "Mutiny 2026  WEBRip   [YTS GG   YTS BZ]",
-      poster: "",
+      name: "Mutiny",
+      poster: "https://m.media-amazon.com/images/M/MV5BMTVjMjVlZjktZTg1Zi00ZDdmLTk1ODItNDE1Y2I4MTg1MDQ0XkEyXkFqcGc@._V1_SX250.jpg",
       type: "movie"
     }
   },
-  // RoboCop 2 
+  // RoboCop 2  
   "tt0100502": {
     name: "uDrop",
     title: "Robocop_2_workprint.mp4",
@@ -54,19 +54,19 @@ const STREAMS_DB = {
       type: "movie"
     }
   },
-  // Teenage Mutant Ninja Turtles Open Matte 
-  "custom_g792t8": {
+  // Teenage Mutant Ninja Turtles  
+  "tt1291150": {
     name: "uDrop",
     title: "Teenage_Mutant_Ninja_Turtles_Open_Matte.mkv",
     url: "https://www.udrop.com/file/PB5i/Teenage_Mutant_Ninja_Turtles_Open_Matte.mkv",
     meta: {
-      name: "Teenage Mutant Ninja Turtles Open Matte",
-      poster: "",
+      name: "Teenage Mutant Ninja Turtles",
+      poster: "https://m.media-amazon.com/images/M/MV5BNjUzODQ5MDY5NV5BMl5BanBnXkFtZTgwOTc1NzcyMjE@._V1_SX250.jpg",
       type: "movie"
     }
   },
-  // 246fd974b9e65d77cded62417eef1cba 
-  "custom_yxp0u5": {
+  // 246fd974b9e65d77cded62417eef1cba  
+  "custom_z1ihos": {
     name: "uDrop",
     title: "246fd974b9e65d77cded62417eef1cba",
     url: "https://www.udrop.com/file/PB5j/246fd974b9e65d77cded62417eef1cba",
@@ -76,18 +76,18 @@ const STREAMS_DB = {
       type: "movie"
     }
   },
-  // Taxi Driver (1976) {edition 35mm Open Matte (Robs)} (subs) 
-  "custom_mniaa8": {
+  // Taxi Driver  
+  "tt0075314": {
     name: "uDrop",
     title: "Taxi_Driver_(1976)_{edition-35mm_Open_Matte_(Robs)}_(subs).mp4",
     url: "https://www.udrop.com/file/PB8c/Taxi_Driver_(1976)_{edition-35mm_Open_Matte_(Robs)}_(subs).mp4",
     meta: {
-      name: "Taxi Driver (1976) {edition 35mm Open Matte (Robs)} (subs)",
-      poster: "",
+      name: "Taxi Driver",
+      poster: "https://m.media-amazon.com/images/M/MV5BZDNhMGYwM2UtMTdlZS00MGQ1LWI2YzAtODY5YWI1MjYyNzRmXkEyXkFqcGc@._V1_SX250.jpg",
       type: "movie"
     }
   },
-  // Family Guy S1E1
+  // Family Guy  S1E1
   "tt0182576:1:1": {
     name: "uDrop",
     title: "S1 E1",
@@ -98,7 +98,7 @@ const STREAMS_DB = {
       type: "series"
     }
   },
-  // Family Guy S1E2
+  // Family Guy  S1E2
   "tt0182576:1:2": {
     name: "uDrop",
     title: "S1 E2",
@@ -109,7 +109,7 @@ const STREAMS_DB = {
       type: "series"
     }
   },
-  // Family Guy S1E3
+  // Family Guy  S1E3
   "tt0182576:1:3": {
     name: "uDrop",
     title: "S1 E3",
@@ -120,7 +120,7 @@ const STREAMS_DB = {
       type: "series"
     }
   },
-  // Family Guy S1E4
+  // Family Guy  S1E4
   "tt0182576:1:4": {
     name: "uDrop",
     title: "S1 E4",
@@ -131,7 +131,7 @@ const STREAMS_DB = {
       type: "series"
     }
   },
-  // Family Guy S1E5
+  // Family Guy  S1E5
   "tt0182576:1:5": {
     name: "uDrop",
     title: "S1 E5",
@@ -142,7 +142,7 @@ const STREAMS_DB = {
       type: "series"
     }
   },
-  // Family Guy S1E6
+  // Family Guy  S1E6
   "tt0182576:1:6": {
     name: "uDrop",
     title: "S1 E6",
@@ -153,7 +153,7 @@ const STREAMS_DB = {
       type: "series"
     }
   },
-  // Family Guy S1E7
+  // Family Guy  S1E7
   "tt0182576:1:7": {
     name: "uDrop",
     title: "S1 E7",
