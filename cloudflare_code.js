@@ -66,7 +66,7 @@ const STREAMS_DB = {
     }
   },
   // 246fd974b9e65d77cded62417eef1cba 
-  "custom_g41ern": {
+  "custom_shqgs3": {
     name: "uDrop",
     title: "246fd974b9e65d77cded62417eef1cba",
     url: "https://www.udrop.com/file/PB5j/246fd974b9e65d77cded62417eef1cba",
