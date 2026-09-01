@@ -1,8 +1,9 @@
 name: Auto-Sync uDrop Library
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'
+  push:
+    paths:
+      - 'links.txt'
   workflow_dispatch:
 
 jobs:
@@ -19,12 +20,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Dependencies
-        run: |
-          npm install
-          npx playwright install --with-deps chromium
-
-      - name: Run Scraper
+      - name: Run Builder
         run: node sync.js
 
       - name: Commit & Push database.json
@@ -32,4 +28,4 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add database.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto-update uDrop database" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update database" && git push)
