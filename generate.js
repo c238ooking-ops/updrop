@@ -10,8 +10,11 @@ function normalizeLink(url) {
 
 function parseFilename(filename) {
   const cleanName = filename.replace(/\.[^/.]+$/, "").replace(/[\._\-~]/g, " ");
-  // Matches S01E01, s1e1, 1x01, etc.
-  const seriesMatch = cleanName.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || cleanName.match(/(.*?)\s*(\d+)x(\d+)/i);
+  // Match S01E01, s1e1, 1x01, Season 1 Episode 1
+  const seriesMatch = 
+    cleanName.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
+    cleanName.match(/(.*?)\s*(\d+)x(\d+)/i) ||
+    cleanName.match(/(.*?)\s*Season\s*(\d+)\s*Episode\s*(\d+)/i);
 
   if (seriesMatch) {
     return {
@@ -37,7 +40,7 @@ async function searchCinemeta(query, type) {
     const data = await res.json();
     if (data?.metas?.length > 0) return data.metas[0];
   } catch (err) {
-    console.error(`Error searching Cinemeta: ${err.message}`);
+    console.error(`Error searching Cinemeta for "${query}":`, err.message);
   }
   return null;
 }
@@ -60,7 +63,7 @@ async function run() {
     const rawFilename = decodeURIComponent(directUrl.split("/").pop());
     const parsed = parseFilename(rawFilename);
 
-    console.log(`Processing: "${parsed.query}" (${parsed.type})`);
+    console.log(`Matching: "${parsed.query}" (${parsed.type})`);
     const meta = await searchCinemeta(parsed.query, parsed.type);
 
     let streamKey = meta?.id || `custom_${Math.random().toString(36).substring(2, 8)}`;
