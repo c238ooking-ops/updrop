@@ -1,7 +1,7 @@
 import fs from 'fs';
 
 // Set your uDrop public folder URL or shared link here
-const UDROP_FOLDER_URL = "https://www.udrop.com/folder/55aadbef3484e0d08a583dd6016f5ace/M";
+const UDROP_FOLDER_URL = "https://www.udrop.com/shared/5x54xh0ip3-wegrd5mf71q_msgvz37le4i6ud9s1izg9gf3kia-nsmfjyc9txluwa95_eblwefhw-l-kopn6wumtujwmi3gwhbdkkacmrlyq4l7ltxbo-llja1aycknp";
 
 // Clean filename to search IMDb/Cinemeta (e.g., "Spider-Man_2002_1080p.mkv" -> "Spider Man")
 function cleanTitle(filename) {
