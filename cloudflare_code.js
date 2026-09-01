@@ -66,7 +66,7 @@ const STREAMS_DB = {
     }
   },
   // 246fd974b9e65d77cded62417eef1cba
-  "custom_gdeabw": {
+  "custom_09uxfz": {
     name: "uDrop",
     title: "246fd974b9e65d77cded62417eef1cba",
     url: "https://www.udrop.com/file/PB5j/246fd974b9e65d77cded62417eef1cba",
@@ -84,6 +84,17 @@ const STREAMS_DB = {
     meta: {
       name: "Taxi Driver",
       poster: "https://images.metahub.space/poster/small/tt0075314/img",
+      type: "movie"
+    }
+  },
+  // Family Guy
+  "tt2551566": {
+    name: "uDrop",
+    title: "Family_guy",
+    url: "https://www.udrop.com/file/folder/429d73397da5a2b4488a851bd04fbc52/Family_guy",
+    meta: {
+      name: "Family Guy",
+      poster: "https://images.metahub.space/poster/small/tt2551566/img",
       type: "movie"
     }
   },
