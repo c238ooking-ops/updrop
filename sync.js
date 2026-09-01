@@ -1,7 +1,6 @@
 import fs from "fs";
 import { chromium } from "playwright";
 
-// Put your exact uDrop folder or profile link here
 const UDROP_FOLDER_URL = "https://www.udrop.com/folder/55aadbef3484e0d08a583dd6016f5ace/M";
 
 function cleanTitle(filename) {
@@ -27,44 +26,55 @@ async function searchCinemeta(query) {
 }
 
 async function run() {
-  console.log("Launching headless browser...");
+  console.log("Launching browser...");
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   });
   const page = await context.newPage();
 
+  let discoveredFiles = [];
+
+  // Listen to background JSON/AJAX calls made by uDrop's file manager
+  page.on("response", async (response) => {
+    try {
+      const contentType = response.headers()["content-type"] || "";
+      if (contentType.includes("application/json")) {
+        const json = await response.json();
+        const jsonStr = JSON.stringify(json);
+        const matches = jsonStr.match(/https:\\?\/\\?\/www\.udrop\.com\\?\/file\\?\/[a-zA-Z0-9_-]+\\?\/[^"'\s\\]+/g) || [];
+        for (const m of matches) {
+          discoveredFiles.push(m.replace(/\\\//g, "/"));
+        }
+      }
+    } catch (e) {}
+  });
+
   console.log(`Navigating to: ${UDROP_FOLDER_URL}`);
   await page.goto(UDROP_FOLDER_URL, { waitUntil: "networkidle", timeout: 60000 });
 
-  // Wait extra seconds for client-side JS tables/grids to populate
-  await page.waitForTimeout(3000);
+  // Scroll down and wait for table/grid elements to load
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(5000);
 
-  // Extract all file links and folder links on page
-  const pageLinks = await page.$$eval("a", (anchors) => anchors.map((a) => a.href));
-  
-  // Find all file URLs (udrop.com/file/...)
-  let fileUrls = pageLinks.filter((href) => href.includes("udrop.com/file/"));
+  // Extract from HTML attributes (data-url, data-href, onclick, href)
+  const domLinks = await page.evaluate(() => {
+    const elements = Array.from(document.querySelectorAll("*"));
+    const links = [];
+    elements.forEach((el) => {
+      const attributes = [el.getAttribute("href"), el.getAttribute("data-url"), el.getAttribute("data-href"), el.getAttribute("onclick")];
+      attributes.forEach((attr) => {
+        if (attr) {
+          const match = attr.match(/https?:\/\/www\.udrop\.com\/file\/[a-zA-Z0-9_-]+\/[^\s"']+/);
+          if (match) links.push(match[0]);
+        }
+      });
+    });
+    return links;
+  });
 
-  // Check if there are subfolders on the page and enter them
-  const folderUrls = pageLinks.filter((href) => href.includes("udrop.com/folder/") || href.includes("/users/"));
-  for (const folder of [...new Set(folderUrls)]) {
-    if (folder !== UDROP_FOLDER_URL) {
-      try {
-        console.log(`Scanning subfolder: ${folder}`);
-        await page.goto(folder, { waitUntil: "networkidle", timeout: 30000 });
-        await page.waitForTimeout(2000);
-        const subLinks = await page.$$eval("a", (anchors) => anchors.map((a) => a.href));
-        const subFiles = subLinks.filter((href) => href.includes("udrop.com/file/"));
-        fileUrls.push(...subFiles);
-      } catch (e) {
-        console.log(`Failed loading folder ${folder}`);
-      }
-    }
-  }
-
-  fileUrls = [...new Set(fileUrls)];
-  console.log(`Found ${fileUrls.length} file links.`);
+  let fileUrls = [...new Set([...discoveredFiles, ...domLinks])];
+  console.log(`Discovered ${fileUrls.length} files from folder.`);
 
   const database = {};
 
@@ -74,8 +84,7 @@ async function run() {
     const searchQuery = cleanTitle(rawFilename);
 
     console.log(`\n[${i + 1}/${fileUrls.length}] Processing: ${rawFilename}`);
-    
-    // Visit the file page to extract direct link if available
+
     let streamUrl = fileUrl;
     try {
       await page.goto(fileUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
@@ -83,11 +92,8 @@ async function run() {
       if (directInput && directInput.startsWith("http")) {
         streamUrl = directInput;
       }
-    } catch (e) {
-      // Fallback to the fileUrl
-    }
+    } catch (e) {}
 
-    // Lookup metadata in Cinemeta
     const meta = await searchCinemeta(searchQuery);
     if (meta) {
       console.log(`  -> Matched: ${meta.name} (${meta.id})`);
