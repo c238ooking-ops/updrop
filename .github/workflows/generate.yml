@@ -1,4 +1,4 @@
-name: Generate Cloudflare Code
+name: Generate Library Database
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  generate:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -20,12 +20,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run Generator
+      - name: Generate Database
         run: node generate.js
 
-      - name: Commit Generated File
+      - name: Commit Database
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add cloudflare_code.js
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update Cloudflare code block" && git push)
+          git add database.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update database.json" && git push)
