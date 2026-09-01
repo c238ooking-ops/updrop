@@ -1,5 +1,18 @@
 import fs from "fs";
 
+// Automatically injects /file/ if missing
+function normalizeUdropLink(url) {
+  let cleanUrl = url.trim();
+  
+  // If it already has /file/, keep it as is
+  if (cleanUrl.includes("udrop.com/file/")) {
+    return cleanUrl;
+  }
+  
+  // Replace https://www.udrop.com/XYZ/movie.mp4 -> https://www.udrop.com/file/XYZ/movie.mp4
+  return cleanUrl.replace(/https?:\/\/(?:www\.)?udrop\.com\/(?!file\/)/i, "https://www.udrop.com/file/");
+}
+
 function cleanTitle(filename) {
   return filename
     .replace(/\.[^/.]+$/, "")
@@ -28,26 +41,30 @@ async function run() {
     process.exit(1);
   }
 
-  const lines = fs.readFileSync("links.txt", "utf-8")
+  const rawLines = fs.readFileSync("links.txt", "utf-8")
     .split("\n")
     .map(l => l.trim())
     .filter(l => l.startsWith("http"));
 
-  console.log(`Processing ${lines.length} links from links.txt...`);
+  console.log(`Processing ${rawLines.length} links from links.txt...`);
   const database = {};
 
-  for (const url of lines) {
-    const rawFilename = decodeURIComponent(url.split("/").pop());
+  for (const rawUrl of rawLines) {
+    // 1. Auto-insert /file/ if missing
+    const directUrl = normalizeUdropLink(rawUrl);
+    const rawFilename = decodeURIComponent(directUrl.split("/").pop());
     const query = cleanTitle(rawFilename);
 
-    console.log(`Matching: ${rawFilename} -> Search: "${query}"`);
+    console.log(`Processing: ${rawFilename}`);
+    console.log(`  -> Direct Link: ${directUrl}`);
+
     const meta = await searchCinemeta(query);
 
     if (meta) {
       database[meta.id] = {
         name: "uDrop Auto",
         title: rawFilename,
-        url: url,
+        url: directUrl,
         meta: {
           name: meta.name,
           poster: meta.poster || "",
@@ -61,7 +78,7 @@ async function run() {
   }
 
   fs.writeFileSync("database.json", JSON.stringify(database, null, 2));
-  console.log("Successfully generated database.json!");
+  console.log("Successfully generated database.json with direct links!");
 }
 
 run();
