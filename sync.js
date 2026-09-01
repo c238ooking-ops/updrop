@@ -1,5 +1,9 @@
 import fs from "fs";
-import { chromium } from "playwright";
+import { chromium } from "playwright-extra";
+import stealth from "puppeteer-extra-plugin-stealth";
+
+// Activate stealth plugin to pass Cloudflare bot detection
+chromium.use(stealth());
 
 const UDROP_FOLDER_URL = "https://www.udrop.com/folder/55aadbef3484e0d08a583dd6016f5ace/M";
 
@@ -26,54 +30,66 @@ async function searchCinemeta(query) {
 }
 
 async function run() {
-  console.log("Launching browser...");
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  console.log("Launching Stealth Chromium browser...");
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-blink-features=AutomationControlled"
+    ]
   });
+
+  const context = await browser.newContext({
+    viewport: { width: 1920, height: 1080 },
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+  });
+
   const page = await context.newPage();
 
-  let discoveredFiles = [];
+  console.log(`Navigating to folder: ${UDROP_FOLDER_URL}`);
+  await page.goto(UDROP_FOLDER_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
 
-  // Listen to background JSON/AJAX calls made by uDrop's file manager
-  page.on("response", async (response) => {
-    try {
-      const contentType = response.headers()["content-type"] || "";
-      if (contentType.includes("application/json")) {
-        const json = await response.json();
-        const jsonStr = JSON.stringify(json);
-        const matches = jsonStr.match(/https:\\?\/\\?\/www\.udrop\.com\\?\/file\\?\/[a-zA-Z0-9_-]+\\?\/[^"'\s\\]+/g) || [];
-        for (const m of matches) {
-          discoveredFiles.push(m.replace(/\\\//g, "/"));
-        }
-      }
-    } catch (e) {}
-  });
+  // Wait for file elements to render
+  console.log("Waiting for file grid / table to load...");
+  try {
+    await page.waitForSelector('.fileIcon, .fileListing, .file-item, tr[data-file-id], a[href*="/file/"]', { timeout: 15000 });
+  } catch (e) {
+    console.log("Standard selector wait timed out, continuing evaluation...");
+  }
 
-  console.log(`Navigating to: ${UDROP_FOLDER_URL}`);
-  await page.goto(UDROP_FOLDER_URL, { waitUntil: "networkidle", timeout: 60000 });
-
-  // Scroll down and wait for table/grid elements to load
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(5000);
 
-  // Extract from HTML attributes (data-url, data-href, onclick, href)
-  const domLinks = await page.evaluate(() => {
-    const elements = Array.from(document.querySelectorAll("*"));
-    const links = [];
-    elements.forEach((el) => {
-      const attributes = [el.getAttribute("href"), el.getAttribute("data-url"), el.getAttribute("data-href"), el.getAttribute("onclick")];
-      attributes.forEach((attr) => {
-        if (attr) {
-          const match = attr.match(/https?:\/\/www\.udrop\.com\/file\/[a-zA-Z0-9_-]+\/[^\s"']+/);
-          if (match) links.push(match[0]);
-        }
+  // Deep DOM Extraction: YetiShare engine attributes + visible items
+  const extractedFiles = await page.evaluate(() => {
+    const results = [];
+    
+    // Method 1: Check all elements with data attributes
+    const allElements = document.querySelectorAll('*');
+    allElements.forEach(el => {
+      const href = el.getAttribute('href') || '';
+      const url = el.getAttribute('data-url') || el.getAttribute('data-original-url') || '';
+      const onclick = el.getAttribute('onclick') || '';
+      
+      [href, url, onclick].forEach(str => {
+        const match = str.match(/https?:\/\/www\.udrop\.com\/file\/[a-zA-Z0-9_-]+\/[^"'\s)]+/);
+        if (match) results.push(match[0]);
       });
     });
-    return links;
+
+    // Method 2: Extract text from file rows
+    const rows = document.querySelectorAll('.fileItem, tr[data-file-id], .fileListing');
+    rows.forEach(row => {
+      const link = row.querySelector('a');
+      if (link && link.href && link.href.includes('/file/')) {
+        results.push(link.href);
+      }
+    });
+
+    return results;
   });
 
-  let fileUrls = [...new Set([...discoveredFiles, ...domLinks])];
+  let fileUrls = [...new Set(extractedFiles)];
   console.log(`Discovered ${fileUrls.length} files from folder.`);
 
   const database = {};
@@ -88,11 +104,19 @@ async function run() {
     let streamUrl = fileUrl;
     try {
       await page.goto(fileUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-      const directInput = await page.$eval('input[id*="direct"], input[id*="download"], input[id*="file"]', (el) => el.value).catch(() => null);
+      await page.waitForTimeout(2000);
+      
+      const directInput = await page.evaluate(() => {
+        const el = document.querySelector('input[id*="direct"], input[id*="download"], input[value*="/file/"]');
+        return el ? el.value : null;
+      });
+
       if (directInput && directInput.startsWith("http")) {
         streamUrl = directInput;
       }
-    } catch (e) {}
+    } catch (e) {
+      // Keep base fileUrl on timeout
+    }
 
     const meta = await searchCinemeta(searchQuery);
     if (meta) {
@@ -108,14 +132,14 @@ async function run() {
         }
       };
     } else {
-      console.log(`  -> No Cinemeta match found for "${searchQuery}"`);
+      console.log(`  -> No Cinemeta match for "${searchQuery}"`);
     }
   }
 
   await browser.close();
 
   fs.writeFileSync("database.json", JSON.stringify(database, null, 2));
-  console.log("\nSuccessfully generated database.json with all files!");
+  console.log("\nSuccessfully updated database.json!");
 }
 
 run();
