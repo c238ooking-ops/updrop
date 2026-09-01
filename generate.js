@@ -10,6 +10,7 @@ function normalizeLink(url) {
 
 function parseFilename(filename) {
   const cleanName = filename.replace(/\.[^/.]+$/, "").replace(/[\._\-~]/g, " ");
+  
   // Match S01E01, s1e1, 1x01, Season 1 Episode 1
   const seriesMatch = 
     cleanName.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
