@@ -1,11 +1,54 @@
 import fs from "fs";
 
-function normalizeLink(url) {
-  let cleanUrl = url.trim();
-  if (cleanUrl.includes("udrop.com/") && !cleanUrl.includes("udrop.com/file/")) {
-    return cleanUrl.replace(/udrop\.com\//i, "udrop.com/file/");
+// Configuration
+const ROOT_FOLDER_ID = process.env.UDROP_FOLDER_ID || null; // null crawls entire account
+const KEY1 = process.env.UDROP_KEY1;
+const KEY2 = process.env.UDROP_KEY2;
+
+const API_BASE = "https://www.udrop.com/api/v2";
+const VIDEO_EXTS = new Set(["mp4", "mkv", "avi", "webm", "ts"]);
+
+async function authorize() {
+  const res = await fetch(`${API_BASE}/authorize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ key1: KEY1, key2: KEY2 })
+  });
+  const data = await res.json();
+  if (data._status !== "success") throw new Error(`Auth failed: ${data.response}`);
+  return { token: data.data.access_token, accountId: data.data.account_id };
+}
+
+// Recursively lists all files across all folders and subfolders
+async function getAllFiles(token, accountId, folderId = null) {
+  let allFiles = [];
+  const body = { access_token: token, account_id: accountId };
+  if (folderId) body.parent_folder_id = folderId;
+
+  const res = await fetch(`${API_BASE}/folder/listing`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(body)
+  });
+  const data = await res.json();
+
+  if (data._status === "success" && data.data) {
+    if (data.data.files) {
+      for (const file of data.data.files) {
+        if (VIDEO_EXTS.has(file.extension?.toLowerCase())) {
+          allFiles.push(file);
+        }
+      }
+    }
+    if (data.data.folders) {
+      for (const sub of data.data.folders) {
+        console.log(`📁 Scanning subfolder: ${sub.folderName}...`);
+        const subFiles = await getAllFiles(token, accountId, sub.id);
+        allFiles = allFiles.concat(subFiles);
+      }
+    }
   }
-  return cleanUrl;
+  return allFiles;
 }
 
 function parseFilename(filename) {
@@ -37,8 +80,8 @@ function parseFilename(filename) {
   }
 
   const cleanTitle = name
-    .replace(/\b(4k|2160p|1440p|1080p|720p|480p|576p|hdrip|webrip|web-dl|web|bluray|brrip|bdrip|dvdrip|remux|scan|open matte|extended|unrated|directors cut)\b/gi, "")
-    .replace(/\b(x264|x265|hevc|h264|h265|avc|10bit|aac|dts|dts-hd|truehd|atmos|ac3|ddp5\.1|dd5\.1|dual audio|hindi|english|esub)\b/gi, "")
+    .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|web-dl|bluray|remux)\b/gi, "")
+    .replace(/\b(x264|x265|hevc|aac|dts|dual audio|hindi|english)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -63,96 +106,64 @@ async function searchCinemeta(title, year, type) {
   return null;
 }
 
-async function searchIMDb(title, year) {
-  try {
-    const query = title.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const url = `https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(query)}.json`;
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-    const data = await res.json();
-    if (data?.d?.length > 0) {
-      const candidates = data.d.filter(item => item.id && item.id.startsWith("tt"));
-      if (year) {
-        const exact = candidates.find(item => item.y == year);
-        if (exact) return { id: exact.id, name: exact.l, year: exact.y, poster: exact.i?.imageUrl || "" };
-      }
-      const top = candidates[0];
-      if (top) return { id: top.id, name: top.l, year: top.y, poster: top.i?.imageUrl || "" };
-    }
-  } catch (e) {}
-  return null;
-}
-
 async function run() {
-  if (!fs.existsSync("links.txt")) {
-    console.error("links.txt not found!");
+  if (!KEY1 || !KEY2) {
+    console.error("Missing UDROP_KEY1 or UDROP_KEY2 in environment.");
     process.exit(1);
   }
 
-  // 1. Load existing database cache to preserve old entries
+  console.log("🔑 Authenticating with uDrop...");
+  const auth = await authorize();
+
+  console.log("🔍 Scanning uDrop directory structure...");
+  const files = await getAllFiles(auth.token, auth.accountId, ROOT_FOLDER_ID);
+  console.log(`Found ${files.length} total video files.`);
+
   let db = {};
   if (fs.existsSync("database.json")) {
     try {
       db = JSON.parse(fs.readFileSync("database.json", "utf-8"));
-      console.log(`Loaded ${Object.keys(db).length} cached entries from database.json.`);
-    } catch (err) {
-      console.warn("Could not parse existing database.json, rebuilding from scratch.");
-    }
+    } catch (e) {}
   }
 
-  // Build a reverse lookup set of existing URLs to avoid re-scraping
-  const indexedUrls = new Set(Object.values(db).map(entry => entry.url));
+  const existingUrls = new Set(Object.values(db).map(e => e.url));
+  let added = 0;
 
-  const rawLines = fs.readFileSync("links.txt", "utf-8")
-    .split("\n")
-    .map(l => l.trim())
-    .filter(l => l.startsWith("http"));
+  for (const file of files) {
+    const directUrl = `https://www.udrop.com/file/${file.shortUrl}/${encodeURIComponent(file.filename)}`;
 
-  let newItemsCount = 0;
+    // Skip if already in database
+    if (existingUrls.has(directUrl)) continue;
 
-  for (const rawUrl of rawLines) {
-    const directUrl = normalizeLink(rawUrl);
-
-    // Skip if URL is already cached
-    if (indexedUrls.has(directUrl)) {
-      continue;
-    }
-
-    const rawFilename = decodeURIComponent(directUrl.split("/").pop());
-    const parsed = parseFilename(rawFilename);
-
-    console.log(`[New Item] Searching: "${parsed.title}" ${parsed.year ? `(${parsed.year})` : ""}`);
-
-    let meta = await searchCinemeta(parsed.title, parsed.year, parsed.type);
-    if (!meta && parsed.type === "movie") {
-      meta = await searchIMDb(parsed.title, parsed.year);
-    }
+    const parsed = parseFilename(file.filename);
+    console.log(`[New Item] Matching: ${parsed.title}...`);
+    const meta = await searchCinemeta(parsed.title, parsed.year, parsed.type);
 
     let streamKey = meta?.id || `custom_${Math.random().toString(36).substring(2, 8)}`;
     if (parsed.type === "series" && meta?.id) {
       streamKey = `${meta.id}:${parsed.season}:${parsed.episode}`;
     }
 
-    const titleDisplay = parsed.type === "series" ? `S${parsed.season} E${parsed.episode}` : rawFilename;
-    const finalName = meta?.name || parsed.title;
-    const finalPoster = meta?.poster || "";
+    const titleDisplay = parsed.type === "series" 
+      ? `S${parsed.season} E${parsed.episode}` 
+      : file.filename;
 
     db[streamKey] = {
       name: "uDrop",
       title: titleDisplay,
       url: directUrl,
       meta: {
-        name: finalName,
-        poster: finalPoster,
+        name: meta?.name || parsed.title,
+        poster: meta?.poster || "",
         type: parsed.type
       }
     };
-
-    indexedUrls.add(directUrl);
-    newItemsCount++;
+    existingUrls.add(directUrl);
+    added++;
   }
 
   fs.writeFileSync("database.json", JSON.stringify(db, null, 2));
-  console.log(`Done! Added ${newItemsCount} new items. Total items in database: ${Object.keys(db).length}`);
+  console.log(`Sync complete! Added ${added} new files. Total: ${Object.keys(db).length}`);
 }
 
 run();
