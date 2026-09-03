@@ -192,7 +192,7 @@
   "tt0156658": {
     "name": "uDrop",
     "title": "Junoon 1992 WebRip 1080p Hindi DD 2.0 x264.mp4",
-    "url": "https://www.udrop.com/file/PBp8/Junoon%201992%20WebRip%201080p%20Hindi%20DD%202.0%20x264.mp4",
+    "url": "https://www.udrop.com/file/PBr8/Junoon%201992%20WebRip%201080p%20Hindi%20DD%202.0%20x264.mp4",
     "meta": {
       "name": "Junoon",
       "poster": "https://m.media-amazon.com/images/M/MV5BNDQ1Mzc4NjUtMjI4YS00NTRjLWJhNmMtNGUxOTAwYjNmNGUzXkEyXkFqcGc@._V1_SX250.jpg",
@@ -226,6 +226,26 @@
     "meta": {
       "name": "Taxi Driver",
       "poster": "",
+      "type": "movie"
+    }
+  },
+  "tt0103855": {
+    "name": "uDrop",
+    "title": "1992 Roja .mkv",
+    "url": "https://www.udrop.com/file/PBHU/1992%20Roja%20.mkv",
+    "meta": {
+      "name": "The Bodyguard",
+      "poster": "https://m.media-amazon.com/images/M/MV5BNTM4ZWNjZmItMmUxNy00Y2M2LTlhZmItMjc0NjQzZmNiOWY5XkEyXkFqcGc@._V1_SX250.jpg",
+      "type": "movie"
+    }
+  },
+  "tt0062177": {
+    "name": "uDrop",
+    "title": "Ram Aur Shyam {1967} {BEi-DVD-RIP} {AC3 Audio}.mkv",
+    "url": "https://www.udrop.com/file/PBHR/Ram%20Aur%20Shyam%20%7B1967%7D%20%7BBEi-DVD-RIP%7D%20%7BAC3%20Audio%7D.mkv",
+    "meta": {
+      "name": "Ram Aur Shyam",
+      "poster": "https://m.media-amazon.com/images/M/MV5BNDk0ZDY2ZTgtN2I2Yy00MWQ3LTk4ZjItNTgzZDZlZDYyZTI1XkEyXkFqcGc@._V1_SX250.jpg",
       "type": "movie"
     }
   }
