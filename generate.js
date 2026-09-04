@@ -21,6 +21,7 @@ async function authorize() {
   return { token: data.data.access_token, accountId: data.data.account_id };
 }
 
+// Recursively traverse active folders, filtering out any deleted/trashed items
 async function getAllFiles(token, accountId, folderId = null) {
   let allFiles = [];
   const body = { access_token: token, account_id: accountId };
@@ -62,11 +63,15 @@ function getEditionTag(filename) {
   if (lower.includes("imax")) tags.push("IMAX");
   if (lower.includes("extended")) tags.push("Extended");
   if (lower.includes("directors cut") || lower.includes("director's cut")) tags.push("Director's Cut");
+  if (lower.includes("workprint")) tags.push("Workprint");
+  if (lower.includes("35mm")) tags.push("35mm Scan");
   if (lower.includes("unrated")) tags.push("Unrated");
   if (lower.includes("remux")) tags.push("Remux");
 
-  const resMatch = filename.match(/\b(2160p|4k|1080p|720p|480p)\b/i);
-  if (resMatch) tags.push(resMatch[1].toUpperCase());
+  const resMatch = filename.match(/\b(2160p|4k|1440p|1080p|720p|480p)\b/i);
+  if (resMatch && !tags.some(t => t.includes(resMatch[1].toUpperCase()))) {
+    tags.push(resMatch[1].toUpperCase());
+  }
 
   return tags.length > 0 ? tags.join(" • ") : "Standard";
 }
@@ -75,6 +80,7 @@ function cleanGarbage(str) {
   return str
     .replace(/[\[\(\{].*?[\]\)\}]/g, " ")
     .replace(/[\._\-~+]/g, " ")
+    .replace(/\b(workprint|scan|35mm|70mm|vhsrip|vhs|telesync|camrip|cam)\b/gi, "")
     .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|brrip|bdrip|dvdrip|remux|open matte|extended|imax|directors cut|unrated)\b/gi, "")
     .replace(/\b(x264|x265|hevc|h264|h265|avc|10bit|aac|dts|truehd|atmos|ac3|ddp5\.1|dd5\.1|dual audio|hindi|english|subtitles|esub|subs)\b/gi, "")
     .replace(/\s+/g, " ")
@@ -85,12 +91,7 @@ function normalize(str) {
   return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// Bulletproof filename parser for all layouts:
-// - "1992 Roja.mkv"
-// - "Aashiqui (1990) English Subtitles.mp4"
-// - "Roja 1992 1080p.mkv"
-// - "2012 (2009).mkv"
-// - "2012.mkv"
+// Universal filename parser supporting vintage years, bracketed years, and leading years
 function parseFilename(filename) {
   let clean = decodeURIComponent(filename).replace(/\.[^/.]+$/, "");
 
@@ -113,7 +114,7 @@ function parseFilename(filename) {
   let year = null;
   let titlePart = clean;
 
-  // Case A: Bracketed year: e.g. "Aashiqui (1990)", "2012 (2009)"
+  // Case A: Bracketed year: e.g. "Spider-Man (2002)", "Aashiqui (1990)"
   const bracketYear = clean.match(/[\(\[]\s*(19\d\d|20\d\d)\s*[\)\]]/);
   if (bracketYear) {
     year = parseInt(bracketYear[1], 10);
@@ -127,20 +128,18 @@ function parseFilename(filename) {
       titlePart = leadingYear[2];
     } 
     else {
-      // Case C: Year anywhere in filename
+      // Case C: Year anywhere or trailing: e.g. "Sikandar 1941", "Roja 1992 1080p"
       const allYears = [...clean.matchAll(/\b(19\d\d|20\d\d)\b/g)];
       if (allYears.length > 0) {
-        // Take the last year token (standard scene convention)
         const lastYearMatch = allYears[allYears.length - 1];
         const beforeYear = clean.substring(0, lastYearMatch.index).trim();
         const candidateTitle = cleanGarbage(beforeYear);
 
-        // If cutting at the year leaves a valid non-empty title, accept it
         if (candidateTitle.length > 0) {
           year = parseInt(lastYearMatch[0], 10);
           titlePart = candidateTitle;
         } else {
-          // If cutting leaves nothing (e.g. "2012.mkv"), the whole number is the title!
+          // If title was only a year (e.g., "2012.mkv")
           titlePart = clean;
           year = null;
         }
@@ -148,11 +147,9 @@ function parseFilename(filename) {
     }
   }
 
-  const finalTitle = cleanGarbage(titlePart);
-
   return {
     type: "movie",
-    title: finalTitle || clean.trim(),
+    title: cleanGarbage(titlePart),
     year: year
   };
 }
@@ -162,7 +159,7 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   const cYear = parseInt(candYearStr, 10);
   const tYear = targetYear ? parseInt(targetYear, 10) : null;
 
-  // RULE 1: Year Guard (hard reject if file has year and candidate differs by > 1)
+  // Year Guard (allow +/- 1 for release date drift)
   if (tYear && !isNaN(cYear)) {
     if (Math.abs(cYear - tYear) > 1) return -1;
   }
@@ -170,7 +167,7 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   const cleanCand = normalize(candTitle);
   const cleanTarget = normalize(targetTitle);
 
-  // RULE 2: Sequel Guard (reject "Aashiqui 2" if looking for "Aashiqui")
+  // Sequel Guard: Disallow sequel candidate only if target DOES NOT contain that sequel marker
   const candWords = candTitle.toLowerCase().split(/\s+/);
   const targetWords = targetTitle.toLowerCase().split(/\s+/);
   for (const w of candWords) {
@@ -191,7 +188,7 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   return score;
 }
 
-// Search Cinemeta with clean title, then filter candidates by year
+// Search Cinemeta with clean title, then score candidates
 async function searchCinemeta(title, year, type) {
   try {
     const catalogType = type === "series" ? "series" : "movie";
@@ -219,7 +216,7 @@ async function searchCinemeta(title, year, type) {
   return null;
 }
 
-// Search IMDb Suggestions with clean title, then filter candidates by year
+// Search IMDb Suggestions with clean title, then score candidates
 async function searchIMDb(title, year) {
   try {
     const query = normalize(title);
