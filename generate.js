@@ -1,7 +1,6 @@
 import fs from "fs";
 
-// Configuration
-const ROOT_FOLDER_ID = process.env.UDROP_FOLDER_ID || null; // null crawls entire account
+const ROOT_FOLDER_ID = process.env.UDROP_FOLDER_ID || null;
 const KEY1 = process.env.UDROP_KEY1;
 const KEY2 = process.env.UDROP_KEY2;
 
@@ -19,7 +18,7 @@ async function authorize() {
   return { token: data.data.access_token, accountId: data.data.account_id };
 }
 
-// Recursively lists all files across all folders and subfolders
+// Recursively traverse every folder and subfolder
 async function getAllFiles(token, accountId, folderId = null) {
   let allFiles = [];
   const body = { access_token: token, account_id: accountId };
@@ -35,7 +34,8 @@ async function getAllFiles(token, accountId, folderId = null) {
   if (data._status === "success" && data.data) {
     if (data.data.files) {
       for (const file of data.data.files) {
-        if (VIDEO_EXTS.has(file.extension?.toLowerCase())) {
+        const ext = (file.extension || file.filename.split(".").pop() || "").toLowerCase();
+        if (VIDEO_EXTS.has(ext)) {
           allFiles.push(file);
         }
       }
@@ -80,8 +80,8 @@ function parseFilename(filename) {
   }
 
   const cleanTitle = name
-    .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|web-dl|bluray|remux)\b/gi, "")
-    .replace(/\b(x264|x265|hevc|aac|dts|dual audio|hindi|english)\b/gi, "")
+    .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|remux)\b/gi, "")
+    .replace(/\b(x264|x265|hevc|aac|dts|dual audio|hindi|english|esub)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -106,6 +106,25 @@ async function searchCinemeta(title, year, type) {
   return null;
 }
 
+async function searchIMDb(title, year) {
+  try {
+    const query = title.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const url = `https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(query)}.json`;
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    const data = await res.json();
+    if (data?.d?.length > 0) {
+      const candidates = data.d.filter(item => item.id && item.id.startsWith("tt"));
+      if (year) {
+        const exact = candidates.find(item => item.y == year);
+        if (exact) return { id: exact.id, name: exact.l, year: exact.y, poster: exact.i?.imageUrl || "" };
+      }
+      const top = candidates[0];
+      if (top) return { id: top.id, name: top.l, year: top.y, poster: top.i?.imageUrl || "" };
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function run() {
   if (!KEY1 || !KEY2) {
     console.error("Missing UDROP_KEY1 or UDROP_KEY2 in environment.");
@@ -115,40 +134,72 @@ async function run() {
   console.log("🔑 Authenticating with uDrop...");
   const auth = await authorize();
 
-  console.log("🔍 Scanning uDrop directory structure...");
-  const files = await getAllFiles(auth.token, auth.accountId, ROOT_FOLDER_ID);
-  console.log(`Found ${files.length} total video files.`);
+  console.log("🔍 Scanning full uDrop folder tree...");
+  const liveFiles = await getAllFiles(auth.token, auth.accountId, ROOT_FOLDER_ID);
+  console.log(`📡 Discovered ${liveFiles.length} valid video files currently on uDrop.`);
 
-  let db = {};
+  // Load existing database
+  let oldDb = {};
   if (fs.existsSync("database.json")) {
     try {
-      db = JSON.parse(fs.readFileSync("database.json", "utf-8"));
-    } catch (e) {}
+      oldDb = JSON.parse(fs.readFileSync("database.json", "utf-8"));
+      console.log(`💾 Loaded ${Object.keys(oldDb).length} existing entries from database.json.`);
+    } catch (e) {
+      console.warn("Could not parse existing database.json, initializing fresh.");
+    }
   }
 
-  const existingUrls = new Set(Object.values(db).map(e => e.url));
-  let added = 0;
+  // Build a lookup map of existing files by shortUrl or clean direct URL
+  const existingByFile = new Map();
+  for (const [key, item] of Object.entries(oldDb)) {
+    if (item.url) {
+      existingByFile.set(item.url, { key, item });
+    }
+  }
 
-  for (const file of files) {
+  const newDb = {};
+  const currentLiveUrls = new Set();
+  let addedCount = 0;
+  let preservedCount = 0;
+
+  for (const file of liveFiles) {
     const directUrl = `https://www.udrop.com/file/${file.shortUrl}/${encodeURIComponent(file.filename)}`;
+    currentLiveUrls.add(directUrl);
 
-    // Skip if already in database
-    if (existingUrls.has(directUrl)) continue;
+    // 1. REUSE EXISTING ENTRY: If already in database, keep it untouched (no Cinemeta request)
+    if (existingByFile.has(directUrl)) {
+      const existing = existingByFile.get(directUrl);
+      newDb[existing.key] = existing.item;
+      preservedCount++;
+      continue;
+    }
 
+    // 2. NEW ENTRY: Only run metadata lookup for new files
     const parsed = parseFilename(file.filename);
-    console.log(`[New Item] Matching: ${parsed.title}...`);
-    const meta = await searchCinemeta(parsed.title, parsed.year, parsed.type);
+    console.log(`[New File] Matching metadata for: "${parsed.title}" ${parsed.year ? `(${parsed.year})` : ""}`);
+
+    let meta = await searchCinemeta(parsed.title, parsed.year, parsed.type);
+    if (!meta && parsed.type === "movie") {
+      meta = await searchIMDb(parsed.title, parsed.year);
+    }
 
     let streamKey = meta?.id || `custom_${Math.random().toString(36).substring(2, 8)}`;
     if (parsed.type === "series" && meta?.id) {
       streamKey = `${meta.id}:${parsed.season}:${parsed.episode}`;
     }
 
-    const titleDisplay = parsed.type === "series" 
-      ? `S${parsed.season} E${parsed.episode}` 
+    // Resolve duplicate key collisions (e.g. multiple resolutions of same movie)
+    let finalKey = streamKey;
+    let counter = 1;
+    while (newDb[finalKey]) {
+      finalKey = `${streamKey}_${counter++}`;
+    }
+
+    const titleDisplay = parsed.type === "series"
+      ? `S${parsed.season} E${parsed.episode}`
       : file.filename;
 
-    db[streamKey] = {
+    newDb[finalKey] = {
       name: "uDrop",
       title: titleDisplay,
       url: directUrl,
@@ -158,12 +209,20 @@ async function run() {
         type: parsed.type
       }
     };
-    existingUrls.add(directUrl);
-    added++;
+    addedCount++;
   }
 
-  fs.writeFileSync("database.json", JSON.stringify(db, null, 2));
-  console.log(`Sync complete! Added ${added} new files. Total: ${Object.keys(db).length}`);
+  // 3. PRUNING: Calculate how many files were removed from uDrop
+  const removedCount = Object.keys(oldDb).length - preservedCount;
+
+  fs.writeFileSync("database.json", JSON.stringify(newDb, null, 2));
+
+  console.log("\n================ SYNC SUMMARY ================");
+  console.log(` preserved (unmodified): ${preservedCount}`);
+  console.log(`➕ newly indexed:        ${addedCount}`);
+  console.log(`🗑️ pruned (deleted files): ${removedCount > 0 ? removedCount : 0}`);
+  console.log(`📊 total in database.json: ${Object.keys(newDb).length}`);
+  console.log("==============================================");
 }
 
 run();
