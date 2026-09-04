@@ -1,12 +1,12 @@
 const STREAMS_DB = {
-  // Spider-Man 3  
-  "tt0413300": {
+  // Spider-Man  
+  "tt0145487": {
     name: "uDrop",
     title: "Spider-Man_(2002)_Open_Matte_35mm_1440p_Scan.mkv",
     url: "https://www.udrop.com/file/PANt/Spider-Man_(2002)_Open_Matte_35mm_1440p_Scan.mkv",
     meta: {
-      name: "Spider-Man 3",
-      poster: "https://m.media-amazon.com/images/M/MV5BODE2NzNhMDctYjUzMC00Y2M5LWI2Y2EtODJkZTFjN2Y5ODlmXkEyXkFqcGc@._V1_SX250.jpg",
+      name: "Spider-Man",
+      poster: "https://images.metahub.space/poster/small/tt0145487/img",
       type: "movie"
     }
   },
@@ -55,24 +55,13 @@ const STREAMS_DB = {
     }
   },
   // Teenage Mutant Ninja Turtles  
-  "tt1291150": {
+  "tt0100758": {
     name: "uDrop",
     title: "Teenage_Mutant_Ninja_Turtles_Open_Matte.mkv",
     url: "https://www.udrop.com/file/PB5i/Teenage_Mutant_Ninja_Turtles_Open_Matte.mkv",
     meta: {
       name: "Teenage Mutant Ninja Turtles",
-      poster: "https://m.media-amazon.com/images/M/MV5BNjUzODQ5MDY5NV5BMl5BanBnXkFtZTgwOTc1NzcyMjE@._V1_SX250.jpg",
-      type: "movie"
-    }
-  },
-  // 246fd974b9e65d77cded62417eef1cba  
-  "custom_z1ihos": {
-    name: "uDrop",
-    title: "246fd974b9e65d77cded62417eef1cba",
-    url: "https://www.udrop.com/file/PB5j/246fd974b9e65d77cded62417eef1cba",
-    meta: {
-      name: "246fd974b9e65d77cded62417eef1cba",
-      poster: "",
+      poster: "https://images.metahub.space/poster/small/tt0100758/img",
       type: "movie"
     }
   },
