@@ -47,7 +47,6 @@ async function getAllFiles(token, accountId, folderId = null) {
   return allFiles;
 }
 
-// Extract human-readable version/edition tag from filename
 function getEditionTag(filename) {
   const tags = [];
   const lower = filename.toLowerCase();
@@ -65,12 +64,14 @@ function getEditionTag(filename) {
   return tags.length > 0 ? tags.join(" • ") : "Standard";
 }
 
+// 1. Strict Filename Parser: Title and Year extracted first
 function parseFilename(filename) {
   let name = decodeURIComponent(filename)
     .replace(/\.[^/.]+$/, "")
     .replace(/[\[\(\{].*?[\]\)\}]/g, " ")
     .replace(/[\._\-~+]/g, " ");
 
+  // Check for TV series pattern first (S01E01 / 1x01)
   const seriesMatch = 
     name.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
     name.match(/(.*?)\s*(\d+)x(\d+)/i) ||
@@ -79,63 +80,150 @@ function parseFilename(filename) {
   if (seriesMatch) {
     return {
       type: "series",
-      title: seriesMatch[1].trim(),
+      title: cleanString(seriesMatch[1]),
       year: null,
       season: parseInt(seriesMatch[2], 10),
       episode: parseInt(seriesMatch[3], 10)
     };
   }
 
+  // Detect 4-digit release year (1900-2099)
   let year = null;
   const yearMatch = name.match(/\b(19\d\d|20\d\d)\b/);
   if (yearMatch) {
-    year = yearMatch[1];
+    year = parseInt(yearMatch[1], 10);
+    // Everything before the year is the actual title
     name = name.substring(0, name.indexOf(yearMatch[0]));
   }
 
-  const cleanTitle = name
-    .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|remux|open matte|extended|imax)\b/gi, "")
-    .replace(/\b(x264|x265|hevc|aac|dts|dual audio|hindi|english|esub)\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return { type: "movie", title: cleanTitle, year };
+  return {
+    type: "movie",
+    title: cleanString(name),
+    year: year
+  };
 }
 
+function cleanString(str) {
+  return str
+    .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|remux|open matte|extended|imax|directors cut|unrated)\b/gi, "")
+    .replace(/\b(x264|x265|hevc|h264|h265|avc|10bit|aac|dts|truehd|atmos|ac3|ddp5\.1|dd5\.1|dual audio|hindi|english|esub)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeTitle(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// 2. High-Precision IMDb Suggestions Search
+async function searchIMDb(title, year) {
+  try {
+    const query = normalizeTitle(title);
+    if (!query) return null;
+    const url = `https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(query)}.json`;
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (!res.ok) return null;
+    const data = await res.json();
+
+    if (data?.d?.length > 0) {
+      const candidates = data.d.filter(item => item.id && item.id.startsWith("tt") && item.q !== "feature");
+
+      // Pass 1: Strict match on Title + Year (±1 year for festival releases)
+      if (year) {
+        const strictMatch = candidates.find(item => {
+          const itemYear = parseInt(item.y, 10);
+          const yearDiff = Math.abs(itemYear - year);
+          const sameTitle = normalizeTitle(item.l) === query || item.l.toLowerCase().includes(title.toLowerCase());
+          return sameTitle && yearDiff <= 1;
+        });
+        if (strictMatch) {
+          return {
+            id: strictMatch.id,
+            name: strictMatch.l,
+            year: strictMatch.y,
+            poster: strictMatch.i?.imageUrl || ""
+          };
+        }
+      }
+
+      // Pass 2: Strict match on Title alone
+      const titleMatch = candidates.find(item => normalizeTitle(item.l) === query);
+      if (titleMatch) {
+        return {
+          id: titleMatch.id,
+          name: titleMatch.l,
+          year: titleMatch.y,
+          poster: titleMatch.i?.imageUrl || ""
+        };
+      }
+
+      // Pass 3: Top candidate if it contains the full title
+      const fallback = candidates[0];
+      if (fallback && fallback.l.toLowerCase().includes(title.toLowerCase())) {
+        return {
+          id: fallback.id,
+          name: fallback.l,
+          year: fallback.y,
+          poster: fallback.i?.imageUrl || ""
+        };
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+// 3. Cinemeta Fallback Search
 async function searchCinemeta(title, year, type) {
   try {
     const catalogType = type === "series" ? "series" : "movie";
     const query = year ? `${title} ${year}` : title;
     const url = `https://v3-cinemeta.strem.io/catalog/${catalogType}/top/search=${encodeURIComponent(query)}.json`;
     const res = await fetch(url);
+    if (!res.ok) return null;
     const data = await res.json();
+
     if (data?.metas?.length > 0) {
+      const normTitle = normalizeTitle(title);
+
       if (year) {
-        const exact = data.metas.find(m => m.year === year || m.releaseInfo === year);
+        const exact = data.metas.find(m => {
+          const mYear = parseInt(m.year || m.releaseInfo, 10);
+          const sameTitle = normalizeTitle(m.name) === normTitle || m.name.toLowerCase().includes(title.toLowerCase());
+          return sameTitle && Math.abs(mYear - year) <= 1;
+        });
         if (exact) return exact;
       }
+
+      const match = data.metas.find(m => normalizeTitle(m.name) === normTitle);
+      if (match) return match;
+
       return data.metas[0];
     }
   } catch (e) {}
   return null;
 }
 
-async function searchIMDb(title, year) {
-  try {
-    const query = title.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const url = `https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(query)}.json`;
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-    const data = await res.json();
-    if (data?.d?.length > 0) {
-      const candidates = data.d.filter(item => item.id && item.id.startsWith("tt"));
-      if (year) {
-        const exact = candidates.find(item => item.y == year);
-        if (exact) return { id: exact.id, name: exact.l, year: exact.y, poster: exact.i?.imageUrl || "" };
-      }
-      const top = candidates[0];
-      if (top) return { id: top.id, name: top.l, year: top.y, poster: top.i?.imageUrl || "" };
+// Master Metadata Resolver: Prioritizes IMDb Title + Year
+async function resolveMetadata(parsed) {
+  console.log(`🔎 Resolving: "${parsed.title}" ${parsed.year ? `[Year: ${parsed.year}]` : ""}`);
+
+  // 1. For movies, query IMDb directly first (most accurate title + year correlation)
+  if (parsed.type === "movie") {
+    const imdbMatch = await searchIMDb(parsed.title, parsed.year);
+    if (imdbMatch) {
+      console.log(`  ✅ [IMDb Hit]: ${imdbMatch.name} (${imdbMatch.year || "N/A"}) -> ${imdbMatch.id}`);
+      return imdbMatch;
     }
-  } catch (e) {}
+  }
+
+  // 2. Query Cinemeta (used for TV shows and as fallback for movies)
+  const cinemetaMatch = await searchCinemeta(parsed.title, parsed.year, parsed.type);
+  if (cinemetaMatch) {
+    console.log(`  ✅ [Cinemeta Hit]: ${cinemetaMatch.name} (${cinemetaMatch.year || ""}) -> ${cinemetaMatch.id}`);
+    return cinemetaMatch;
+  }
+
+  console.log(`  ⚠️ No exact IMDb/Cinemeta match found. Using parsed title.`);
   return null;
 }
 
@@ -147,8 +235,8 @@ async function run() {
 
   const auth = await authorize();
   const liveFiles = await getAllFiles(auth.token, auth.accountId, ROOT_FOLDER_ID);
+  console.log(`📡 Discovered ${liveFiles.length} files on uDrop.`);
 
-  // Load existing database
   let oldDb = {};
   if (fs.existsSync("database.json")) {
     try {
@@ -156,12 +244,11 @@ async function run() {
     } catch (e) {}
   }
 
-  // Index existing streams by file URL to reuse matched metadata
   const cachedStreamsByUrl = new Map();
   for (const [key, entry] of Object.entries(oldDb)) {
     const streams = Array.isArray(entry.streams) ? entry.streams : [entry];
     for (const s of streams) {
-      if (s.url) cachedStreamsByUrl.set(s.url, { key, meta: entry.meta, stream: s });
+      if (s.url) cachedStreamsByUrl.set(s.url, { key, meta: entry.meta });
     }
   }
 
@@ -187,12 +274,9 @@ async function run() {
       continue;
     }
 
-    // New item lookup
+    // New file: Run strict Title + Year resolver
     const parsed = parseFilename(file.filename);
-    let meta = await searchCinemeta(parsed.title, parsed.year, parsed.type);
-    if (!meta && parsed.type === "movie") {
-      meta = await searchIMDb(parsed.title, parsed.year);
-    }
+    const meta = await resolveMetadata(parsed);
 
     let streamKey = meta?.id || `custom_${Math.random().toString(36).substring(2, 8)}`;
     if (parsed.type === "series" && meta?.id) {
@@ -222,7 +306,7 @@ async function run() {
   }
 
   fs.writeFileSync("database.json", JSON.stringify(newDb, null, 2));
-  console.log(`Synced! Database contains ${Object.keys(newDb).length} titles/episodes.`);
+  console.log(`\n🎉 Sync complete! Total active items: ${Object.keys(newDb).length}`);
 }
 
 run();
