@@ -21,7 +21,6 @@ async function authorize() {
   return { token: data.data.access_token, accountId: data.data.account_id };
 }
 
-// Recursively traverse active folders, filtering out any deleted/trashed items
 async function getAllFiles(token, accountId, folderId = null) {
   let allFiles = [];
   const body = { access_token: token, account_id: accountId };
@@ -91,11 +90,9 @@ function normalize(str) {
   return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// Universal filename parser supporting vintage years, bracketed years, and leading years
 function parseFilename(filename) {
   let clean = decodeURIComponent(filename).replace(/\.[^/.]+$/, "");
 
-  // 1. Check TV Series first
   const seriesMatch = 
     clean.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
     clean.match(/(.*?)\s*(\d+)x(\d+)/i) ||
@@ -114,21 +111,16 @@ function parseFilename(filename) {
   let year = null;
   let titlePart = clean;
 
-  // Case A: Bracketed year: e.g. "Spider-Man (2002)", "Aashiqui (1990)"
   const bracketYear = clean.match(/[\(\[]\s*(19\d\d|20\d\d)\s*[\)\]]/);
   if (bracketYear) {
     year = parseInt(bracketYear[1], 10);
     titlePart = clean.replace(bracketYear[0], " ");
-  } 
-  else {
-    // Case B: Leading year: e.g. "1992 Roja"
+  } else {
     const leadingYear = clean.match(/^[\s\._\-]*(19\d\d|20\d\d)[\s\._\-]+([a-zA-Z].*)/);
     if (leadingYear) {
       year = parseInt(leadingYear[1], 10);
       titlePart = leadingYear[2];
-    } 
-    else {
-      // Case C: Year anywhere or trailing: e.g. "Sikandar 1941", "Roja 1992 1080p"
+    } else {
       const allYears = [...clean.matchAll(/\b(19\d\d|20\d\d)\b/g)];
       if (allYears.length > 0) {
         const lastYearMatch = allYears[allYears.length - 1];
@@ -139,7 +131,6 @@ function parseFilename(filename) {
           year = parseInt(lastYearMatch[0], 10);
           titlePart = candidateTitle;
         } else {
-          // If title was only a year (e.g., "2012.mkv")
           titlePart = clean;
           year = null;
         }
@@ -159,7 +150,6 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   const cYear = parseInt(candYearStr, 10);
   const tYear = targetYear ? parseInt(targetYear, 10) : null;
 
-  // Year Guard (allow +/- 1 for release date drift)
   if (tYear && !isNaN(cYear)) {
     if (Math.abs(cYear - tYear) > 1) return -1;
   }
@@ -167,7 +157,6 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   const cleanCand = normalize(candTitle);
   const cleanTarget = normalize(targetTitle);
 
-  // Sequel Guard: Disallow sequel candidate only if target DOES NOT contain that sequel marker
   const candWords = candTitle.toLowerCase().split(/\s+/);
   const targetWords = targetTitle.toLowerCase().split(/\s+/);
   for (const w of candWords) {
@@ -188,7 +177,6 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   return score;
 }
 
-// Search Cinemeta with clean title, then score candidates
 async function searchCinemeta(title, year, type) {
   try {
     const catalogType = type === "series" ? "series" : "movie";
@@ -216,7 +204,6 @@ async function searchCinemeta(title, year, type) {
   return null;
 }
 
-// Search IMDb Suggestions with clean title, then score candidates
 async function searchIMDb(title, year) {
   try {
     const query = normalize(title);
@@ -259,14 +246,12 @@ async function resolveMetadata(parsed) {
 
   console.log(`🔎 Searching: "${parsed.title}" ${parsed.year ? `[Year: ${parsed.year}]` : ""}`);
 
-  // Query Cinemeta first
   let match = await searchCinemeta(parsed.title, parsed.year, parsed.type);
   if (match) {
     console.log(`  ✅ [Cinemeta Matched]: ${match.name} (${match.year || ""}) -> ${match.id}`);
     return match;
   }
 
-  // Query IMDb suggestions fallback
   if (parsed.type === "movie") {
     match = await searchIMDb(parsed.title, parsed.year);
     if (match) {
@@ -301,10 +286,18 @@ async function run() {
             const match = s.url.match(/udrop\.com\/file\/([^/]+)/);
             const shortId = match ? match[1] : null;
             if (shortId) {
+              // Extract recorded filename from URL or explicit field
+              let storedFilename = s.filename || "";
+              if (!storedFilename) {
+                const parts = s.url.split("/");
+                storedFilename = decodeURIComponent(parts[parts.length - 1]);
+              }
+
               cachedStreams.set(shortId, {
                 key: key,
                 meta: entry.meta,
-                streamTitle: s.title
+                streamTitle: s.title,
+                filename: storedFilename
               });
             }
           }
@@ -318,15 +311,16 @@ async function run() {
 
   const newDb = {};
   let reusedCount = 0;
+  let updatedCount = 0;
   let newAddedCount = 0;
 
   for (const file of liveFiles) {
     const directUrl = `https://www.udrop.com/file/${file.shortUrl}/${encodeURIComponent(file.filename)}`;
     const edition = getEditionTag(file.filename);
 
-    // Reuse from cache if available
-    if (cachedStreams.has(file.shortUrl)) {
-      const cached = cachedStreams.get(file.shortUrl);
+    // Check cache: only reuse if the file still has the EXACT SAME filename
+    const cached = cachedStreams.get(file.shortUrl);
+    if (cached && cached.filename === file.filename) {
       const key = cached.key;
 
       if (!newDb[key]) {
@@ -336,13 +330,23 @@ async function run() {
       newDb[key].streams.push({
         name: "uDrop",
         title: cached.streamTitle || `${cached.meta.name} [${edition}]`,
-        url: directUrl
+        url: directUrl,
+        filename: file.filename
       });
       reusedCount++;
       continue;
     }
 
-    // New file resolving
+    if (cached && cached.filename !== file.filename) {
+      console.log(`\n🔄 Detected rename for [${file.shortUrl}]:`);
+      console.log(`   Old: "${cached.filename}"`);
+      console.log(`   New: "${file.filename}" -> Triggering re-index.`);
+      updatedCount++;
+    } else {
+      newAddedCount++;
+    }
+
+    // Process new or renamed file
     const parsed = parseFilename(file.filename);
     const meta = await resolveMetadata(parsed);
 
@@ -369,15 +373,16 @@ async function run() {
     newDb[streamKey].streams.push({
       name: "uDrop",
       title: displayTitle,
-      url: directUrl
+      url: directUrl,
+      filename: file.filename
     });
-    newAddedCount++;
   }
 
   fs.writeFileSync("database.json", JSON.stringify(newDb, null, 2));
 
   console.log("\n================ SYNC SUMMARY ================");
   console.log(`♻️  Reused from cache:   ${reusedCount}`);
+  console.log(`🔄 Re-indexed (renamed): ${updatedCount}`);
   console.log(`➕ Newly indexed files: ${newAddedCount}`);
   console.log(`📦 Active titles in DB:  ${Object.keys(newDb).length}`);
   console.log("==============================================");
