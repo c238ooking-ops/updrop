@@ -40,6 +40,7 @@ async function getAllFiles(token, accountId, folderId = null) {
     }
     if (data.data.folders) {
       for (const sub of data.data.folders) {
+        console.log(`📁 Scanning subfolder: ${sub.folderName}...`);
         const subFiles = await getAllFiles(token, accountId, sub.id);
         allFiles = allFiles.concat(subFiles);
       }
@@ -65,7 +66,6 @@ function getEditionTag(filename) {
   return tags.length > 0 ? tags.join(" • ") : "Standard";
 }
 
-// Extract Title, Year, and Episode cleanly
 function parseFilename(filename) {
   let name = decodeURIComponent(filename)
     .replace(/\.[^/.]+$/, "")
@@ -87,12 +87,10 @@ function parseFilename(filename) {
     };
   }
 
-  // Match 4-digit release year (1900-2099)
   let year = null;
   const yearMatch = name.match(/\b(19\d\d|20\d\d)\b/);
   if (yearMatch) {
     year = parseInt(yearMatch[1], 10);
-    // Cut off everything from the year onwards so only title remains
     name = name.substring(0, name.indexOf(yearMatch[0]));
   }
 
@@ -115,44 +113,29 @@ function normalize(str) {
   return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// Strict Dual-Key Scorer
 function scoreMatch(candidateTitle, candidateYear, targetTitle, targetYear) {
   const cYear = parseInt(candidateYear, 10);
   const tYear = targetYear ? parseInt(targetYear, 10) : null;
 
-  // RULE 1: If file has a year, reject candidates with year gap > 1
   if (tYear && !isNaN(cYear)) {
-    if (Math.abs(cYear - tYear) > 1) {
-      return -1; // REJECT (Prevents matching 1990 with 2013)
-    }
+    if (Math.abs(cYear - tYear) > 1) return -1;
   }
 
   const cleanCand = normalize(candidateTitle);
   const cleanTarget = normalize(targetTitle);
 
-  // RULE 2: Sequel Guard - If candidate has sequel terms not in target, reject
   const candWords = candidateTitle.toLowerCase().split(/\s+/);
   const targetWords = targetTitle.toLowerCase().split(/\s+/);
   for (const word of candWords) {
-    if (SEQUEL_TAGS.has(word) && !targetWords.includes(word)) {
-      return -1; // REJECT (Prevents "Aashiqui 2" when target is "Aashiqui")
-    }
+    if (SEQUEL_TAGS.has(word) && !targetWords.includes(word)) return -1;
   }
 
   let score = 0;
+  if (cleanCand === cleanTarget) score += 80;
+  else if (cleanCand.startsWith(cleanTarget)) score += 40;
+  else if (cleanCand.includes(cleanTarget)) score += 20;
+  else return -1;
 
-  // Exact alphanumeric match
-  if (cleanCand === cleanTarget) {
-    score += 80;
-  } else if (cleanCand.startsWith(cleanTarget)) {
-    score += 40;
-  } else if (cleanCand.includes(cleanTarget)) {
-    score += 20;
-  } else {
-    return -1; // Not related
-  }
-
-  // Exact year bonus
   if (tYear && !isNaN(cYear)) {
     if (cYear === tYear) score += 50;
     else if (Math.abs(cYear - tYear) === 1) score += 20;
@@ -161,7 +144,6 @@ function scoreMatch(candidateTitle, candidateYear, targetTitle, targetYear) {
   return score;
 }
 
-// 1. Search IMDb Suggestion API
 async function searchIMDb(title, year) {
   try {
     const query = normalize(title);
@@ -195,7 +177,6 @@ async function searchIMDb(title, year) {
   return null;
 }
 
-// 2. Search Cinemeta
 async function searchCinemeta(title, year, type) {
   try {
     const catalogType = type === "series" ? "series" : "movie";
@@ -223,11 +204,9 @@ async function searchCinemeta(title, year, type) {
   return null;
 }
 
-// Combined Resolver
 async function resolveMetadata(parsed) {
-  console.log(`🔎 Matching: "${parsed.title}" ${parsed.year ? `[Year: ${parsed.year}]` : ""}`);
+  console.log(`🔎 Resolving: "${parsed.title}" ${parsed.year ? `[Year: ${parsed.year}]` : ""}`);
 
-  // Try IMDb First
   if (parsed.type === "movie") {
     const imdbMatch = await searchIMDb(parsed.title, parsed.year);
     if (imdbMatch) {
@@ -236,14 +215,13 @@ async function resolveMetadata(parsed) {
     }
   }
 
-  // Fallback to Cinemeta
   const cinemetaMatch = await searchCinemeta(parsed.title, parsed.year, parsed.type);
   if (cinemetaMatch) {
     console.log(`  ✅ [Cinemeta Locked]: ${cinemetaMatch.name} (${cinemetaMatch.year || ""}) -> ${cinemetaMatch.id}`);
     return cinemetaMatch;
   }
 
-  console.log(`  ⚠️ No valid match found respecting title + year constraint.`);
+  console.log(`  ⚠️ No strict match found. Using parsed title.`);
   return null;
 }
 
@@ -255,46 +233,64 @@ async function run() {
 
   const auth = await authorize();
   const liveFiles = await getAllFiles(auth.token, auth.accountId, ROOT_FOLDER_ID);
-  console.log(`📡 Discovered ${liveFiles.length} files on uDrop.`);
+  console.log(`📡 Discovered ${liveFiles.length} live files on uDrop.`);
 
-  let oldDb = {};
+  // 1. Read existing database ONLY as a cache lookup
+  const cachedStreamsByUrl = new Map();
   if (fs.existsSync("database.json")) {
     try {
-      oldDb = JSON.parse(fs.readFileSync("database.json", "utf-8"));
-    } catch (e) {}
-  }
-
-  const cachedStreamsByUrl = new Map();
-  for (const [key, entry] of Object.entries(oldDb)) {
-    const streams = Array.isArray(entry.streams) ? entry.streams : [entry];
-    for (const s of streams) {
-      if (s.url) cachedStreamsByUrl.set(s.url, { key, meta: entry.meta });
+      const oldDb = JSON.parse(fs.readFileSync("database.json", "utf-8"));
+      for (const [key, entry] of Object.entries(oldDb)) {
+        const streams = Array.isArray(entry.streams) ? entry.streams : [entry];
+        for (const s of streams) {
+          if (s.url) {
+            cachedStreamsByUrl.set(s.url, {
+              key: key,
+              meta: entry.meta,
+              streamTitle: s.title
+            });
+          }
+        }
+      }
+      console.log(`💾 Cache contains ${cachedStreamsByUrl.size} indexed URLs.`);
+    } catch (e) {
+      console.log("No valid existing database found. Building fresh from scratch.");
     }
+  } else {
+    console.log("database.json not found. Initializing complete fresh build.");
   }
 
+  // 2. Build new database strictly from LIVE files on uDrop
   const newDb = {};
+  let reusedCount = 0;
+  let newAddedCount = 0;
 
   for (const file of liveFiles) {
     const directUrl = `https://www.udrop.com/file/${file.shortUrl}/${encodeURIComponent(file.filename)}`;
     const edition = getEditionTag(file.filename);
 
-    // Reuse existing entry
+    // CASE A: File is already in database.json -> Reuse metadata instantly
     if (cachedStreamsByUrl.has(directUrl)) {
       const cached = cachedStreamsByUrl.get(directUrl);
       const key = cached.key;
 
       if (!newDb[key]) {
-        newDb[key] = { meta: cached.meta, streams: [] };
+        newDb[key] = {
+          meta: cached.meta,
+          streams: []
+        };
       }
+
       newDb[key].streams.push({
         name: "uDrop",
-        title: `${cached.meta.name} [${edition}]`,
+        title: cached.streamTitle || `${cached.meta.name} [${edition}]`,
         url: directUrl
       });
+      reusedCount++;
       continue;
     }
 
-    // New file resolving
+    // CASE B: Brand new file -> Query IMDb/Cinemeta
     const parsed = parseFilename(file.filename);
     const meta = await resolveMetadata(parsed);
 
@@ -323,10 +319,17 @@ async function run() {
       title: displayTitle,
       url: directUrl
     });
+    newAddedCount++;
   }
 
+  // 3. Write purely the active items back to disk
   fs.writeFileSync("database.json", JSON.stringify(newDb, null, 2));
-  console.log(`\n🎉 Complete! Total active items: ${Object.keys(newDb).length}`);
+
+  console.log("\n================ SYNC SUMMARY ================");
+  console.log(`♻️  Reused from cache:   ${reusedCount}`);
+  console.log(`➕ Newly indexed files: ${newAddedCount}`);
+  console.log(`📦 Active titles in DB:  ${Object.keys(newDb).length}`);
+  console.log("==============================================");
 }
 
 run();
