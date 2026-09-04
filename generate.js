@@ -21,7 +21,6 @@ async function authorize() {
   return { token: data.data.access_token, accountId: data.data.account_id };
 }
 
-// Recursively traverse active folders, filtering out any deleted/trashed items
 async function getAllFiles(token, accountId, folderId = null) {
   let allFiles = [];
   const body = { access_token: token, account_id: accountId };
@@ -76,7 +75,7 @@ function cleanGarbage(str) {
   return str
     .replace(/[\[\(\{].*?[\]\)\}]/g, " ")
     .replace(/[\._\-~+]/g, " ")
-    .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|remux|open matte|extended|imax|directors cut|unrated)\b/gi, "")
+    .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|brrip|bdrip|dvdrip|remux|open matte|extended|imax|directors cut|unrated)\b/gi, "")
     .replace(/\b(x264|x265|hevc|h264|h265|avc|10bit|aac|dts|truehd|atmos|ac3|ddp5\.1|dd5\.1|dual audio|hindi|english|subtitles|esub|subs)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -86,11 +85,16 @@ function normalize(str) {
   return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// Bidirectional and Number-Safe Filename Parser
+// Bulletproof filename parser for all layouts:
+// - "1992 Roja.mkv"
+// - "Aashiqui (1990) English Subtitles.mp4"
+// - "Roja 1992 1080p.mkv"
+// - "2012 (2009).mkv"
+// - "2012.mkv"
 function parseFilename(filename) {
   let clean = decodeURIComponent(filename).replace(/\.[^/.]+$/, "");
 
-  // 1. Detect TV Series
+  // 1. Check TV Series first
   const seriesMatch = 
     clean.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
     clean.match(/(.*?)\s*(\d+)x(\d+)/i) ||
@@ -109,35 +113,36 @@ function parseFilename(filename) {
   let year = null;
   let titlePart = clean;
 
-  // RULE A: Explicit Year in Brackets/Parentheses -> e.g. "2012 (2009)", "Blade Runner 2049 (2017)"
-  const bracketYearMatch = clean.match(/[\(\[]\s*(19\d\d|20\d\d)\s*[\)\]]/);
-
-  if (bracketYearMatch) {
-    year = parseInt(bracketYearMatch[1], 10);
-    titlePart = clean.replace(bracketYearMatch[0], " ");
+  // Case A: Bracketed year: e.g. "Aashiqui (1990)", "2012 (2009)"
+  const bracketYear = clean.match(/[\(\[]\s*(19\d\d|20\d\d)\s*[\)\]]/);
+  if (bracketYear) {
+    year = parseInt(bracketYear[1], 10);
+    titlePart = clean.replace(bracketYear[0], " ");
   } 
   else {
-    // RULE B: Leading Year followed by title -> e.g. "1992 Roja"
-    const leadingYearMatch = clean.match(/^[\s\._\-]*(19\d\d|20\d\d)[\s\._\-]+([a-zA-Z].*)/);
-
-    if (leadingYearMatch) {
-      year = parseInt(leadingYearMatch[1], 10);
-      titlePart = leadingYearMatch[2];
+    // Case B: Leading year: e.g. "1992 Roja"
+    const leadingYear = clean.match(/^[\s\._\-]*(19\d\d|20\d\d)[\s\._\-]+([a-zA-Z].*)/);
+    if (leadingYear) {
+      year = parseInt(leadingYear[1], 10);
+      titlePart = leadingYear[2];
     } 
     else {
-      // RULE C: Trailing Year before tags -> e.g. "Roja 1992 1080p", "Aashiqui 1990 WEB-DL"
-      const trailingYearMatch = clean.match(/\b(19\d\d|20\d\d)\b(?=\s*(?:4k|2160p|1080p|720p|bluray|web|remux|dvd|x264|x265|hevc|hindi|english|$))/i);
+      // Case C: Year anywhere in filename
+      const allYears = [...clean.matchAll(/\b(19\d\d|20\d\d)\b/g)];
+      if (allYears.length > 0) {
+        // Take the last year token (standard scene convention)
+        const lastYearMatch = allYears[allYears.length - 1];
+        const beforeYear = clean.substring(0, lastYearMatch.index).trim();
+        const candidateTitle = cleanGarbage(beforeYear);
 
-      if (trailingYearMatch) {
-        const potentialYear = parseInt(trailingYearMatch[1], 10);
-        const remainingTitle = clean.substring(0, trailingYearMatch.index).trim();
-
-        // If slicing leaves string empty (e.g., "2012.mkv"), preserve whole number as title
-        if (remainingTitle.length > 0) {
-          year = potentialYear;
-          titlePart = remainingTitle;
+        // If cutting at the year leaves a valid non-empty title, accept it
+        if (candidateTitle.length > 0) {
+          year = parseInt(lastYearMatch[0], 10);
+          titlePart = candidateTitle;
         } else {
+          // If cutting leaves nothing (e.g. "2012.mkv"), the whole number is the title!
           titlePart = clean;
+          year = null;
         }
       }
     }
@@ -152,45 +157,70 @@ function parseFilename(filename) {
   };
 }
 
-// ================= METADATA QUERYING =================
-async function searchCinemetaCombined(title, year, type) {
+// ================= SCORING & RESOLVER =================
+function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
+  const cYear = parseInt(candYearStr, 10);
+  const tYear = targetYear ? parseInt(targetYear, 10) : null;
+
+  // RULE 1: Year Guard (hard reject if file has year and candidate differs by > 1)
+  if (tYear && !isNaN(cYear)) {
+    if (Math.abs(cYear - tYear) > 1) return -1;
+  }
+
+  const cleanCand = normalize(candTitle);
+  const cleanTarget = normalize(targetTitle);
+
+  // RULE 2: Sequel Guard (reject "Aashiqui 2" if looking for "Aashiqui")
+  const candWords = candTitle.toLowerCase().split(/\s+/);
+  const targetWords = targetTitle.toLowerCase().split(/\s+/);
+  for (const w of candWords) {
+    if (SEQUEL_TAGS.has(w) && !targetWords.includes(w)) return -1;
+  }
+
+  let score = 0;
+  if (cleanCand === cleanTarget) score += 100;
+  else if (cleanCand.startsWith(cleanTarget)) score += 50;
+  else if (cleanCand.includes(cleanTarget)) score += 20;
+  else return -1;
+
+  if (tYear && !isNaN(cYear)) {
+    if (cYear === tYear) score += 60;
+    else if (Math.abs(cYear - tYear) === 1) score += 30;
+  }
+
+  return score;
+}
+
+// Search Cinemeta with clean title, then filter candidates by year
+async function searchCinemeta(title, year, type) {
   try {
     const catalogType = type === "series" ? "series" : "movie";
-    const combinedQuery = year ? `${title} ${year}` : title;
-    const url = `https://v3-cinemeta.strem.io/catalog/${catalogType}/top/search=${encodeURIComponent(combinedQuery)}.json`;
+    const url = `https://v3-cinemeta.strem.io/catalog/${catalogType}/top/search=${encodeURIComponent(title)}.json`;
 
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
 
     if (data?.metas?.length > 0) {
-      const targetNorm = normalize(title);
+      let bestItem = null;
+      let highestScore = 0;
 
       for (const m of data.metas) {
-        const candNorm = normalize(m.name);
-        const candYear = parseInt(m.year || m.releaseInfo, 10);
-
-        if (/\d+$/.test(candNorm) && !/\d+$/.test(targetNorm)) continue;
-
-        if (candNorm === targetNorm || candNorm.startsWith(targetNorm)) {
-          if (year && !isNaN(candYear)) {
-            if (Math.abs(candYear - year) <= 1) return m;
-          } else {
-            return m;
-          }
+        const mYear = m.year || m.releaseInfo;
+        const score = scoreCandidate(m.name, mYear, title, year);
+        if (score > highestScore) {
+          highestScore = score;
+          bestItem = m;
         }
       }
-
-      if (year) {
-        const yearExact = data.metas.find(m => Math.abs(parseInt(m.year || m.releaseInfo, 10) - year) <= 1);
-        if (yearExact) return yearExact;
-      }
+      return bestItem;
     }
   } catch (e) {}
   return null;
 }
 
-async function searchIMDbStrict(title, year) {
+// Search IMDb Suggestions with clean title, then filter candidates by year
+async function searchIMDb(title, year) {
   try {
     const query = normalize(title);
     if (!query) return null;
@@ -202,24 +232,15 @@ async function searchIMDbStrict(title, year) {
     const data = await res.json();
 
     if (data?.d?.length > 0) {
+      let bestItem = null;
+      let highestScore = 0;
+
       for (const item of data.d) {
         if (!item.id || !item.id.startsWith("tt") || item.q === "feature") continue;
-        const itemYear = parseInt(item.y, 10);
-        const itemNorm = normalize(item.l);
-
-        if (/\d+$/.test(itemNorm) && !/\d+$/.test(query)) continue;
-
-        if (year && !isNaN(itemYear)) {
-          if (Math.abs(itemYear - year) <= 1 && (itemNorm === query || itemNorm.startsWith(query))) {
-            return {
-              id: item.id,
-              name: item.l,
-              year: item.y,
-              poster: item.i?.imageUrl || ""
-            };
-          }
-        } else if (itemNorm === query) {
-          return {
+        const score = scoreCandidate(item.l, item.y, title, year);
+        if (score > highestScore) {
+          highestScore = score;
+          bestItem = {
             id: item.id,
             name: item.l,
             year: item.y,
@@ -227,6 +248,7 @@ async function searchIMDbStrict(title, year) {
           };
         }
       }
+      return bestItem;
     }
   } catch (e) {}
   return null;
@@ -238,23 +260,25 @@ async function resolveMetadata(parsed) {
     return null;
   }
 
-  console.log(`🔎 Searching [Title + Year]: "${parsed.title}" ${parsed.year ? `(${parsed.year})` : ""}`);
+  console.log(`🔎 Searching: "${parsed.title}" ${parsed.year ? `[Year: ${parsed.year}]` : ""}`);
 
-  let match = await searchCinemetaCombined(parsed.title, parsed.year, parsed.type);
+  // Query Cinemeta first
+  let match = await searchCinemeta(parsed.title, parsed.year, parsed.type);
   if (match) {
     console.log(`  ✅ [Cinemeta Matched]: ${match.name} (${match.year || ""}) -> ${match.id}`);
     return match;
   }
 
+  // Query IMDb suggestions fallback
   if (parsed.type === "movie") {
-    match = await searchIMDbStrict(parsed.title, parsed.year);
+    match = await searchIMDb(parsed.title, parsed.year);
     if (match) {
       console.log(`  ✅ [IMDb Matched]: ${match.name} (${match.year || ""}) -> ${match.id}`);
       return match;
     }
   }
 
-  console.log(`  ⚠️ No verified metadata match found.`);
+  console.log(`  ⚠️ No strict match found. Using parsed title.`);
   return null;
 }
 
@@ -269,7 +293,6 @@ async function run() {
   const liveFiles = await getAllFiles(auth.token, auth.accountId, ROOT_FOLDER_ID);
   console.log(`📡 Discovered ${liveFiles.length} active files on uDrop.`);
 
-  // 1. Load existing database as read-only cache keyed by shortUrl
   const cachedStreams = new Map();
   if (fs.existsSync("database.json")) {
     try {
@@ -296,7 +319,6 @@ async function run() {
     }
   }
 
-  // 2. Build updated database strictly from currently live files
   const newDb = {};
   let reusedCount = 0;
   let newAddedCount = 0;
@@ -305,6 +327,7 @@ async function run() {
     const directUrl = `https://www.udrop.com/file/${file.shortUrl}/${encodeURIComponent(file.filename)}`;
     const edition = getEditionTag(file.filename);
 
+    // Reuse from cache if available
     if (cachedStreams.has(file.shortUrl)) {
       const cached = cachedStreams.get(file.shortUrl);
       const key = cached.key;
@@ -322,6 +345,7 @@ async function run() {
       continue;
     }
 
+    // New file resolving
     const parsed = parseFilename(file.filename);
     const meta = await resolveMetadata(parsed);
 
