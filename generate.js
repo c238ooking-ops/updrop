@@ -66,16 +66,15 @@ function getEditionTag(filename) {
   return tags.length > 0 ? tags.join(" • ") : "Standard";
 }
 
+// Fixed Parser: Extracts year BEFORE stripping brackets
 function parseFilename(filename) {
-  let name = decodeURIComponent(filename)
-    .replace(/\.[^/.]+$/, "")
-    .replace(/[\[\(\{].*?[\]\)\}]/g, " ")
-    .replace(/[\._\-~+]/g, " ");
+  let raw = decodeURIComponent(filename).replace(/\.[^/.]+$/, "");
 
+  // 1. Detect TV Series
   const seriesMatch = 
-    name.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
-    name.match(/(.*?)\s*(\d+)x(\d+)/i) ||
-    name.match(/(.*?)\s*Season\s*(\d+)\s*Episode\s*(\d+)/i);
+    raw.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
+    raw.match(/(.*?)\s*(\d+)x(\d+)/i) ||
+    raw.match(/(.*?)\s*Season\s*(\d+)\s*Episode\s*(\d+)/i);
 
   if (seriesMatch) {
     return {
@@ -87,16 +86,23 @@ function parseFilename(filename) {
     };
   }
 
+  // 2. Extract Year FIRST (checks both (1990) and raw 1990)
   let year = null;
-  const yearMatch = name.match(/\b(19\d\d|20\d\d)\b/);
+  const yearMatch = raw.match(/[\(\[\s\._\-]?(19\d\d|20\d\d)[\)\]\s\._\-]?/);
   if (yearMatch) {
     year = parseInt(yearMatch[1], 10);
-    name = name.substring(0, name.indexOf(yearMatch[0]));
+    // Cut the string right where the year begins
+    raw = raw.substring(0, yearMatch.index);
   }
+
+  // 3. Now strip brackets and garbage from the remaining title part
+  raw = raw
+    .replace(/[\[\(\{].*?[\]\)\}]/g, " ")
+    .replace(/[\._\-~+]/g, " ");
 
   return {
     type: "movie",
-    title: cleanTitleString(name),
+    title: cleanTitleString(raw),
     year: year
   };
 }
@@ -104,7 +110,7 @@ function parseFilename(filename) {
 function cleanTitleString(str) {
   return str
     .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|remux|open matte|extended|imax|directors cut|unrated)\b/gi, "")
-    .replace(/\b(x264|x265|hevc|h264|h265|avc|10bit|aac|dts|truehd|atmos|ac3|ddp5\.1|dd5\.1|dual audio|hindi|english|esub)\b/gi, "")
+    .replace(/\b(x264|x265|hevc|h264|h265|avc|10bit|aac|dts|truehd|atmos|ac3|ddp5\.1|dd5\.1|dual audio|hindi|english|subtitles|esub|subs)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -235,8 +241,8 @@ async function run() {
   const liveFiles = await getAllFiles(auth.token, auth.accountId, ROOT_FOLDER_ID);
   console.log(`📡 Discovered ${liveFiles.length} live files on uDrop.`);
 
-  // 1. Read existing database ONLY as a cache lookup
-  const cachedStreamsByUrl = new Map();
+  // Load cache indexed strictly by file shortUrl
+  const cachedStreams = new Map();
   if (fs.existsSync("database.json")) {
     try {
       const oldDb = JSON.parse(fs.readFileSync("database.json", "utf-8"));
@@ -244,7 +250,10 @@ async function run() {
         const streams = Array.isArray(entry.streams) ? entry.streams : [entry];
         for (const s of streams) {
           if (s.url) {
-            cachedStreamsByUrl.set(s.url, {
+            // Extract the unique shortUrl id (e.g. udrop.com/file/ABCD/...)
+            const match = s.url.match(/udrop\.com\/file\/([^/]+)/);
+            const fileKey = match ? match[1] : s.url;
+            cachedStreams.set(fileKey, {
               key: key,
               meta: entry.meta,
               streamTitle: s.title
@@ -252,15 +261,13 @@ async function run() {
           }
         }
       }
-      console.log(`💾 Cache contains ${cachedStreamsByUrl.size} indexed URLs.`);
+      console.log(`💾 Cache contains ${cachedStreams.size} files.`);
     } catch (e) {
-      console.log("No valid existing database found. Building fresh from scratch.");
+      console.log("Building fresh database.");
     }
-  } else {
-    console.log("database.json not found. Initializing complete fresh build.");
   }
 
-  // 2. Build new database strictly from LIVE files on uDrop
+  // Construct database exclusively from currently live files
   const newDb = {};
   let reusedCount = 0;
   let newAddedCount = 0;
@@ -269,16 +276,13 @@ async function run() {
     const directUrl = `https://www.udrop.com/file/${file.shortUrl}/${encodeURIComponent(file.filename)}`;
     const edition = getEditionTag(file.filename);
 
-    // CASE A: File is already in database.json -> Reuse metadata instantly
-    if (cachedStreamsByUrl.has(directUrl)) {
-      const cached = cachedStreamsByUrl.get(directUrl);
+    // Reuse cache by unique shortUrl
+    if (cachedStreams.has(file.shortUrl)) {
+      const cached = cachedStreams.get(file.shortUrl);
       const key = cached.key;
 
       if (!newDb[key]) {
-        newDb[key] = {
-          meta: cached.meta,
-          streams: []
-        };
+        newDb[key] = { meta: cached.meta, streams: [] };
       }
 
       newDb[key].streams.push({
@@ -290,7 +294,7 @@ async function run() {
       continue;
     }
 
-    // CASE B: Brand new file -> Query IMDb/Cinemeta
+    // Process new file
     const parsed = parseFilename(file.filename);
     const meta = await resolveMetadata(parsed);
 
@@ -322,7 +326,6 @@ async function run() {
     newAddedCount++;
   }
 
-  // 3. Write purely the active items back to disk
   fs.writeFileSync("database.json", JSON.stringify(newDb, null, 2));
 
   console.log("\n================ SYNC SUMMARY ================");
