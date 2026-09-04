@@ -6,6 +6,7 @@ const KEY2 = process.env.UDROP_KEY2;
 
 const API_BASE = "https://www.udrop.com/api/v2";
 const VIDEO_EXTS = new Set(["mp4", "mkv", "avi", "webm", "ts"]);
+const SEQUEL_TAGS = new Set(["2", "3", "4", "5", "6", "ii", "iii", "iv", "v", "part", "chapter", "returns", "reloaded"]);
 
 async function authorize() {
   const res = await fetch(`${API_BASE}/authorize`, {
@@ -64,14 +65,13 @@ function getEditionTag(filename) {
   return tags.length > 0 ? tags.join(" • ") : "Standard";
 }
 
-// 1. Strict Filename Parser: Title and Year extracted first
+// Extract Title, Year, and Episode cleanly
 function parseFilename(filename) {
   let name = decodeURIComponent(filename)
     .replace(/\.[^/.]+$/, "")
     .replace(/[\[\(\{].*?[\]\)\}]/g, " ")
     .replace(/[\._\-~+]/g, " ");
 
-  // Check for TV series pattern first (S01E01 / 1x01)
   const seriesMatch = 
     name.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
     name.match(/(.*?)\s*(\d+)x(\d+)/i) ||
@@ -80,30 +80,30 @@ function parseFilename(filename) {
   if (seriesMatch) {
     return {
       type: "series",
-      title: cleanString(seriesMatch[1]),
+      title: cleanTitleString(seriesMatch[1]),
       year: null,
       season: parseInt(seriesMatch[2], 10),
       episode: parseInt(seriesMatch[3], 10)
     };
   }
 
-  // Detect 4-digit release year (1900-2099)
+  // Match 4-digit release year (1900-2099)
   let year = null;
   const yearMatch = name.match(/\b(19\d\d|20\d\d)\b/);
   if (yearMatch) {
     year = parseInt(yearMatch[1], 10);
-    // Everything before the year is the actual title
+    // Cut off everything from the year onwards so only title remains
     name = name.substring(0, name.indexOf(yearMatch[0]));
   }
 
   return {
     type: "movie",
-    title: cleanString(name),
+    title: cleanTitleString(name),
     year: year
   };
 }
 
-function cleanString(str) {
+function cleanTitleString(str) {
   return str
     .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|remux|open matte|extended|imax|directors cut|unrated)\b/gi, "")
     .replace(/\b(x264|x265|hevc|h264|h265|avc|10bit|aac|dts|truehd|atmos|ac3|ddp5\.1|dd5\.1|dual audio|hindi|english|esub)\b/gi, "")
@@ -111,68 +111,91 @@ function cleanString(str) {
     .trim();
 }
 
-function normalizeTitle(str) {
-  return str.toLowerCase().replace(/[^a-z0-9]/g, "");
+function normalize(str) {
+  return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// 2. High-Precision IMDb Suggestions Search
+// Strict Dual-Key Scorer
+function scoreMatch(candidateTitle, candidateYear, targetTitle, targetYear) {
+  const cYear = parseInt(candidateYear, 10);
+  const tYear = targetYear ? parseInt(targetYear, 10) : null;
+
+  // RULE 1: If file has a year, reject candidates with year gap > 1
+  if (tYear && !isNaN(cYear)) {
+    if (Math.abs(cYear - tYear) > 1) {
+      return -1; // REJECT (Prevents matching 1990 with 2013)
+    }
+  }
+
+  const cleanCand = normalize(candidateTitle);
+  const cleanTarget = normalize(targetTitle);
+
+  // RULE 2: Sequel Guard - If candidate has sequel terms not in target, reject
+  const candWords = candidateTitle.toLowerCase().split(/\s+/);
+  const targetWords = targetTitle.toLowerCase().split(/\s+/);
+  for (const word of candWords) {
+    if (SEQUEL_TAGS.has(word) && !targetWords.includes(word)) {
+      return -1; // REJECT (Prevents "Aashiqui 2" when target is "Aashiqui")
+    }
+  }
+
+  let score = 0;
+
+  // Exact alphanumeric match
+  if (cleanCand === cleanTarget) {
+    score += 80;
+  } else if (cleanCand.startsWith(cleanTarget)) {
+    score += 40;
+  } else if (cleanCand.includes(cleanTarget)) {
+    score += 20;
+  } else {
+    return -1; // Not related
+  }
+
+  // Exact year bonus
+  if (tYear && !isNaN(cYear)) {
+    if (cYear === tYear) score += 50;
+    else if (Math.abs(cYear - tYear) === 1) score += 20;
+  }
+
+  return score;
+}
+
+// 1. Search IMDb Suggestion API
 async function searchIMDb(title, year) {
   try {
-    const query = normalizeTitle(title);
+    const query = normalize(title);
     if (!query) return null;
-    const url = `https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(query)}.json`;
+    const firstChar = query.charAt(0);
+    const url = `https://v3.sg.media-imdb.com/suggestion/${encodeURIComponent(firstChar)}/${encodeURIComponent(query)}.json`;
     const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
     if (!res.ok) return null;
     const data = await res.json();
 
     if (data?.d?.length > 0) {
-      const candidates = data.d.filter(item => item.id && item.id.startsWith("tt") && item.q !== "feature");
+      let bestItem = null;
+      let highestScore = 0;
 
-      // Pass 1: Strict match on Title + Year (±1 year for festival releases)
-      if (year) {
-        const strictMatch = candidates.find(item => {
-          const itemYear = parseInt(item.y, 10);
-          const yearDiff = Math.abs(itemYear - year);
-          const sameTitle = normalizeTitle(item.l) === query || item.l.toLowerCase().includes(title.toLowerCase());
-          return sameTitle && yearDiff <= 1;
-        });
-        if (strictMatch) {
-          return {
-            id: strictMatch.id,
-            name: strictMatch.l,
-            year: strictMatch.y,
-            poster: strictMatch.i?.imageUrl || ""
+      for (const item of data.d) {
+        if (!item.id || !item.id.startsWith("tt") || item.q === "feature") continue;
+        const score = scoreMatch(item.l, item.y, title, year);
+        if (score > highestScore) {
+          highestScore = score;
+          bestItem = {
+            id: item.id,
+            name: item.l,
+            year: item.y,
+            poster: item.i?.imageUrl || ""
           };
         }
       }
-
-      // Pass 2: Strict match on Title alone
-      const titleMatch = candidates.find(item => normalizeTitle(item.l) === query);
-      if (titleMatch) {
-        return {
-          id: titleMatch.id,
-          name: titleMatch.l,
-          year: titleMatch.y,
-          poster: titleMatch.i?.imageUrl || ""
-        };
-      }
-
-      // Pass 3: Top candidate if it contains the full title
-      const fallback = candidates[0];
-      if (fallback && fallback.l.toLowerCase().includes(title.toLowerCase())) {
-        return {
-          id: fallback.id,
-          name: fallback.l,
-          year: fallback.y,
-          poster: fallback.i?.imageUrl || ""
-        };
-      }
+      return bestItem;
     }
   } catch (e) {}
   return null;
 }
 
-// 3. Cinemeta Fallback Search
+// 2. Search Cinemeta
 async function searchCinemeta(title, year, type) {
   try {
     const catalogType = type === "series" ? "series" : "movie";
@@ -183,47 +206,44 @@ async function searchCinemeta(title, year, type) {
     const data = await res.json();
 
     if (data?.metas?.length > 0) {
-      const normTitle = normalizeTitle(title);
+      let bestItem = null;
+      let highestScore = 0;
 
-      if (year) {
-        const exact = data.metas.find(m => {
-          const mYear = parseInt(m.year || m.releaseInfo, 10);
-          const sameTitle = normalizeTitle(m.name) === normTitle || m.name.toLowerCase().includes(title.toLowerCase());
-          return sameTitle && Math.abs(mYear - year) <= 1;
-        });
-        if (exact) return exact;
+      for (const meta of data.metas) {
+        const metaYear = meta.year || meta.releaseInfo;
+        const score = scoreMatch(meta.name, metaYear, title, year);
+        if (score > highestScore) {
+          highestScore = score;
+          bestItem = meta;
+        }
       }
-
-      const match = data.metas.find(m => normalizeTitle(m.name) === normTitle);
-      if (match) return match;
-
-      return data.metas[0];
+      return bestItem;
     }
   } catch (e) {}
   return null;
 }
 
-// Master Metadata Resolver: Prioritizes IMDb Title + Year
+// Combined Resolver
 async function resolveMetadata(parsed) {
-  console.log(`🔎 Resolving: "${parsed.title}" ${parsed.year ? `[Year: ${parsed.year}]` : ""}`);
+  console.log(`🔎 Matching: "${parsed.title}" ${parsed.year ? `[Year: ${parsed.year}]` : ""}`);
 
-  // 1. For movies, query IMDb directly first (most accurate title + year correlation)
+  // Try IMDb First
   if (parsed.type === "movie") {
     const imdbMatch = await searchIMDb(parsed.title, parsed.year);
     if (imdbMatch) {
-      console.log(`  ✅ [IMDb Hit]: ${imdbMatch.name} (${imdbMatch.year || "N/A"}) -> ${imdbMatch.id}`);
+      console.log(`  ✅ [IMDb Locked]: ${imdbMatch.name} (${imdbMatch.year || "N/A"}) -> ${imdbMatch.id}`);
       return imdbMatch;
     }
   }
 
-  // 2. Query Cinemeta (used for TV shows and as fallback for movies)
+  // Fallback to Cinemeta
   const cinemetaMatch = await searchCinemeta(parsed.title, parsed.year, parsed.type);
   if (cinemetaMatch) {
-    console.log(`  ✅ [Cinemeta Hit]: ${cinemetaMatch.name} (${cinemetaMatch.year || ""}) -> ${cinemetaMatch.id}`);
+    console.log(`  ✅ [Cinemeta Locked]: ${cinemetaMatch.name} (${cinemetaMatch.year || ""}) -> ${cinemetaMatch.id}`);
     return cinemetaMatch;
   }
 
-  console.log(`  ⚠️ No exact IMDb/Cinemeta match found. Using parsed title.`);
+  console.log(`  ⚠️ No valid match found respecting title + year constraint.`);
   return null;
 }
 
@@ -258,7 +278,7 @@ async function run() {
     const directUrl = `https://www.udrop.com/file/${file.shortUrl}/${encodeURIComponent(file.filename)}`;
     const edition = getEditionTag(file.filename);
 
-    // Reuse existing entry if present
+    // Reuse existing entry
     if (cachedStreamsByUrl.has(directUrl)) {
       const cached = cachedStreamsByUrl.get(directUrl);
       const key = cached.key;
@@ -274,7 +294,7 @@ async function run() {
       continue;
     }
 
-    // New file: Run strict Title + Year resolver
+    // New file resolving
     const parsed = parseFilename(file.filename);
     const meta = await resolveMetadata(parsed);
 
@@ -306,7 +326,7 @@ async function run() {
   }
 
   fs.writeFileSync("database.json", JSON.stringify(newDb, null, 2));
-  console.log(`\n🎉 Sync complete! Total active items: ${Object.keys(newDb).length}`);
+  console.log(`\n🎉 Complete! Total active items: ${Object.keys(newDb).length}`);
 }
 
 run();
