@@ -53,21 +53,6 @@
       }
     ]
   },
-  "tt0316654": {
-    "meta": {
-      "name": "Spider-Man 2",
-      "poster": "https://images.metahub.space/poster/medium/tt0316654/img",
-      "type": "movie"
-    },
-    "streams": [
-      {
-        "name": "uDrop",
-        "title": "Spider-Man 2 [Open Matte • Extended • 1080P]",
-        "url": "https://www.udrop.com/file/PGFM/spiderman.2.2004.1080p.open.matte.extended.Part1.mkv",
-        "filename": "spiderman.2.2004.1080p.open.matte.extended.Part1.mkv"
-      }
-    ]
-  },
   "tt0411906": {
     "meta": {
       "name": "Spider-Man 2",
@@ -75,6 +60,12 @@
       "type": "movie"
     },
     "streams": [
+       {
+        "name": "uDrop",
+        "title": "Spider-Man 2 [Open Matte • Extended • 1080P]",
+        "url": "https://www.udrop.com/file/PGFM/spiderman.2.2004.1080p.open.matte.extended.Part1.mkv",
+        "filename": "spiderman.2.2004.1080p.open.matte.extended.Part1.mkv"
+      },
       {
         "name": "uDrop",
         "title": "Spider-Man 2 [Open Matte • Extended • 1080P]",
