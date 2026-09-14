@@ -140,21 +140,6 @@
       }
     ]
   },
-  "custom_aq0y0q": {
-    "meta": {
-      "name": "Chandni in HD Einthusan",
-      "poster": "",
-      "type": "movie"
-    },
-    "streams": [
-      {
-        "name": "uDrop",
-        "title": "Chandni in HD Einthusan [Standard]",
-        "url": "https://www.udrop.com/file/PGC3/Chandni%20(1989)%20Hindi%20in%20HD%20-%20Einthusan.mp4",
-        "filename": "Chandni (1989) Hindi in HD - Einthusan.mp4"
-      }
-    ]
-  },
   "tt0097045": {
     "meta": {
       "name": "Chandni",
@@ -167,6 +152,12 @@
         "title": "Chandni [1080P]",
         "url": "https://www.udrop.com/file/PGC6/Chandni.1989.1080p.WeB-DL.Hindi.AAC5.1.x264-SkymoviesHD.mkv",
         "filename": "Chandni.1989.1080p.WeB-DL.Hindi.AAC5.1.x264-SkymoviesHD.mkv"
+      },
+      {
+        "name": "uDrop",
+        "title": "Chandni in HD Einthusan [Standard]",
+        "url": "https://www.udrop.com/file/PGC3/Chandni%20(1989)%20Hindi%20in%20HD%20-%20Einthusan.mp4",
+        "filename": "Chandni (1989) Hindi in HD - Einthusan.mp4"
       }
     ]
   },
@@ -290,10 +281,10 @@
       }
     ]
   },
-  "custom_fgzatm": {
+  "tt0243559": {
     "meta": {
       "name": "Sikandar",
-      "poster": "",
+      "poster": "https://images.metahub.space/poster/medium/tt0243559/img",
       "type": "movie"
     },
     "streams": [
