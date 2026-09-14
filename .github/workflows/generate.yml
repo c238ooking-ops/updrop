@@ -26,12 +26,11 @@ jobs:
 
       - name: Run Auto Sync
         env:
-          # Multi-account JSON array secret
           UDROP_ACCOUNTS_JSON: ${{ secrets.UDROP_ACCOUNTS_JSON }}
-          # Fallback legacy secrets (if JSON array is not used)
           UDROP_KEY1: ${{ secrets.UDROP_KEY1 }}
           UDROP_KEY2: ${{ secrets.UDROP_KEY2 }}
           UDROP_FOLDER_ID: ${{ secrets.UDROP_FOLDER_ID }}
+          NODE_OPTIONS: "--no-warnings"
         run: node generate.js
 
       - name: Commit & Push Changes
