@@ -149,15 +149,15 @@
     "streams": [
       {
         "name": "uDrop",
-        "title": "Chandni [1080P]",
-        "url": "https://www.udrop.com/file/PGC6/Chandni.1989.1080p.WeB-DL.Hindi.AAC5.1.x264-SkymoviesHD.mkv",
-        "filename": "Chandni.1989.1080p.WeB-DL.Hindi.AAC5.1.x264-SkymoviesHD.mkv"
-      },
-      {
-        "name": "uDrop",
         "title": "Chandni in HD Einthusan [Standard]",
         "url": "https://www.udrop.com/file/PGC3/Chandni%20(1989)%20Hindi%20in%20HD%20-%20Einthusan.mp4",
         "filename": "Chandni (1989) Hindi in HD - Einthusan.mp4"
+      },
+      {
+        "name": "uDrop",
+        "title": "Chandni [1080P]",
+        "url": "https://www.udrop.com/file/PGC6/Chandni.1989.1080p.WeB-DL.Hindi.AAC5.1.x264-SkymoviesHD.mkv",
+        "filename": "Chandni.1989.1080p.WeB-DL.Hindi.AAC5.1.x264-SkymoviesHD.mkv"
       }
     ]
   },
