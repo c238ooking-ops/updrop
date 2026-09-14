@@ -1,26 +1,36 @@
 import fs from "fs";
 
 // ================= CONFIGURATION =================
-const ROOT_FOLDER_ID = process.env.UDROP_FOLDER_ID || null;
-const KEY1 = process.env.UDROP_KEY1;
-const KEY2 = process.env.UDROP_KEY2;
+let ACCOUNTS = [];
 
+if (process.env.UDROP_ACCOUNTS_JSON) {
+  try {
+    ACCOUNTS = JSON.parse(process.env.UDROP_ACCOUNTS_JSON);
+  } catch (e) {
+    console.error("Failed to parse UDROP_ACCOUNTS_JSON:", e.message);
+  }
+} else if (process.env.UDROP_KEY1 && process.env.UDROP_KEY2) {
+  ACCOUNTS.push({ name: "Primary Account", key1: process.env.UDROP_KEY1, key2: process.env.UDROP_KEY2 });
+}
+
+const ROOT_FOLDER_ID = process.env.UDROP_FOLDER_ID || null;
 const API_BASE = "https://www.udrop.com/api/v2";
 const VIDEO_EXTS = new Set(["mp4", "mkv", "avi", "webm", "ts"]);
 const SEQUEL_TAGS = new Set(["2", "3", "4", "5", "6", "ii", "iii", "iv", "v", "part", "chapter", "returns", "reloaded"]);
 
 // ================= UDROP API HELPERS =================
-async function authorize() {
+async function authorize(key1, key2) {
   const res = await fetch(`${API_BASE}/authorize`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ key1: KEY1, key2: KEY2 })
+    body: new URLSearchParams({ key1, key2 })
   });
   const data = await res.json();
   if (data._status !== "success") throw new Error(`Auth failed: ${data.response}`);
   return { token: data.data.access_token, accountId: data.data.account_id };
 }
 
+// Recursively traverse active folders, filtering out any deleted/trashed items
 async function getAllFiles(token, accountId, folderId = null) {
   let allFiles = [];
   const body = { access_token: token, account_id: accountId };
@@ -90,9 +100,11 @@ function normalize(str) {
   return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+// Universal parser supporting vintage years, bracketed years, and leading years
 function parseFilename(filename) {
   let clean = decodeURIComponent(filename).replace(/\.[^/.]+$/, "");
 
+  // 1. Check TV Series first
   const seriesMatch = 
     clean.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
     clean.match(/(.*?)\s*(\d+)x(\d+)/i) ||
@@ -111,16 +123,19 @@ function parseFilename(filename) {
   let year = null;
   let titlePart = clean;
 
+  // Case A: Bracketed year: e.g. "Spider-Man (2002)", "Aashiqui (1990)"
   const bracketYear = clean.match(/[\(\[]\s*(19\d\d|20\d\d)\s*[\)\]]/);
   if (bracketYear) {
     year = parseInt(bracketYear[1], 10);
     titlePart = clean.replace(bracketYear[0], " ");
   } else {
+    // Case B: Leading year: e.g. "1992 Roja"
     const leadingYear = clean.match(/^[\s\._\-]*(19\d\d|20\d\d)[\s\._\-]+([a-zA-Z].*)/);
     if (leadingYear) {
       year = parseInt(leadingYear[1], 10);
       titlePart = leadingYear[2];
     } else {
+      // Case C: Year anywhere or trailing: e.g. "Sikandar 1941", "Roja 1992 1080p"
       const allYears = [...clean.matchAll(/\b(19\d\d|20\d\d)\b/g)];
       if (allYears.length > 0) {
         const lastYearMatch = allYears[allYears.length - 1];
@@ -131,6 +146,7 @@ function parseFilename(filename) {
           year = parseInt(lastYearMatch[0], 10);
           titlePart = candidateTitle;
         } else {
+          // If title was only a year (e.g., "2012.mkv")
           titlePart = clean;
           year = null;
         }
@@ -150,6 +166,7 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   const cYear = parseInt(candYearStr, 10);
   const tYear = targetYear ? parseInt(targetYear, 10) : null;
 
+  // Year Guard (allow +/- 1 for release date drift)
   if (tYear && !isNaN(cYear)) {
     if (Math.abs(cYear - tYear) > 1) return -1;
   }
@@ -157,6 +174,7 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   const cleanCand = normalize(candTitle);
   const cleanTarget = normalize(targetTitle);
 
+  // Sequel Guard: Disallow sequel candidate only if target DOES NOT contain that sequel marker
   const candWords = candTitle.toLowerCase().split(/\s+/);
   const targetWords = targetTitle.toLowerCase().split(/\s+/);
   for (const w of candWords) {
@@ -177,6 +195,7 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   return score;
 }
 
+// Search Cinemeta with clean title, then score candidates
 async function searchCinemeta(title, year, type) {
   try {
     const catalogType = type === "series" ? "series" : "movie";
@@ -204,6 +223,7 @@ async function searchCinemeta(title, year, type) {
   return null;
 }
 
+// Search IMDb Suggestions with clean title, then score candidates
 async function searchIMDb(title, year) {
   try {
     const query = normalize(title);
@@ -246,12 +266,14 @@ async function resolveMetadata(parsed) {
 
   console.log(`🔎 Searching: "${parsed.title}" ${parsed.year ? `[Year: ${parsed.year}]` : ""}`);
 
+  // Query Cinemeta first
   let match = await searchCinemeta(parsed.title, parsed.year, parsed.type);
   if (match) {
     console.log(`  ✅ [Cinemeta Matched]: ${match.name} (${match.year || ""}) -> ${match.id}`);
     return match;
   }
 
+  // Query IMDb suggestions fallback
   if (parsed.type === "movie") {
     match = await searchIMDb(parsed.title, parsed.year);
     if (match) {
@@ -266,15 +288,30 @@ async function resolveMetadata(parsed) {
 
 // ================= MAIN RUNNER =================
 async function run() {
-  if (!KEY1 || !KEY2) {
-    console.error("Missing UDROP_KEY1 or UDROP_KEY2.");
+  if (ACCOUNTS.length === 0) {
+    console.error("No uDrop credentials configured in environment.");
     process.exit(1);
   }
 
-  const auth = await authorize();
-  const liveFiles = await getAllFiles(auth.token, auth.accountId, ROOT_FOLDER_ID);
-  console.log(`📡 Discovered ${liveFiles.length} active files on uDrop.`);
+  let liveFiles = [];
 
+  // Crawl every configured account
+  for (const acc of ACCOUNTS) {
+    try {
+      console.log(`\n🔑 Authenticating with [${acc.name}]...`);
+      const auth = await authorize(acc.key1, acc.key2);
+      console.log(`🔍 Scanning folder tree for [${acc.name}]...`);
+      const files = await getAllFiles(auth.token, auth.accountId, ROOT_FOLDER_ID);
+      console.log(`   Found ${files.length} active video files.`);
+      liveFiles = liveFiles.concat(files);
+    } catch (err) {
+      console.error(`❌ Failed to scan ${acc.name}: ${err.message}`);
+    }
+  }
+
+  console.log(`\n📡 Total pooled video files across all accounts: ${liveFiles.length}`);
+
+  // 1. Load existing database as read-only cache keyed by shortUrl
   const cachedStreams = new Map();
   if (fs.existsSync("database.json")) {
     try {
@@ -286,16 +323,24 @@ async function run() {
             const match = s.url.match(/udrop\.com\/file\/([^/]+)/);
             const shortId = match ? match[1] : null;
             if (shortId) {
-              // Extract recorded filename from URL or explicit field
               let storedFilename = s.filename || "";
               if (!storedFilename) {
                 const parts = s.url.split("/");
                 storedFilename = decodeURIComponent(parts[parts.length - 1]);
               }
 
+              // Standardize poster to Metahub CDN if key is tt...
+              let currentPoster = entry.meta?.poster || "";
+              if (key.startsWith("tt")) {
+                currentPoster = `https://images.metahub.space/poster/medium/${key.split(":")[0]}/img`;
+              }
+
               cachedStreams.set(shortId, {
                 key: key,
-                meta: entry.meta,
+                meta: {
+                  ...entry.meta,
+                  poster: currentPoster
+                },
                 streamTitle: s.title,
                 filename: storedFilename
               });
@@ -309,6 +354,7 @@ async function run() {
     }
   }
 
+  // 2. Build updated database strictly from currently live files
   const newDb = {};
   let reusedCount = 0;
   let updatedCount = 0;
@@ -318,7 +364,6 @@ async function run() {
     const directUrl = `https://www.udrop.com/file/${file.shortUrl}/${encodeURIComponent(file.filename)}`;
     const edition = getEditionTag(file.filename);
 
-    // Check cache: only reuse if the file still has the EXACT SAME filename
     const cached = cachedStreams.get(file.shortUrl);
     if (cached && cached.filename === file.filename) {
       const key = cached.key;
@@ -355,11 +400,16 @@ async function run() {
       streamKey = `${meta.id}:${parsed.season}:${parsed.episode}`;
     }
 
+    // Route posters through Metahub CDN for lightweight, uniform delivery
+    const standardizedPoster = (meta?.id && meta.id.startsWith("tt"))
+      ? `https://images.metahub.space/poster/medium/${meta.id}/img`
+      : (meta?.poster || "");
+
     if (!newDb[streamKey]) {
       newDb[streamKey] = {
         meta: {
           name: meta?.name || parsed.title,
-          poster: meta?.poster || "",
+          poster: standardizedPoster,
           type: parsed.type
         },
         streams: []
