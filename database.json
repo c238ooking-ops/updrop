@@ -2,15 +2,15 @@
   "tt38616652": {
     "meta": {
       "name": "Go Team!",
-      "poster": "",
+      "poster": "https://m.media-amazon.com/images/M/MV5BMWEzOTdmYTYtOTRkNi00MGU5LWIwZWUtNTZkZDFiNTdmOWYyXkEyXkFqcGc@._V1_SX250.jpg",
       "type": "movie"
     },
     "streams": [
       {
         "name": "uDrop",
-        "title": "output video [Standard]",
-        "url": "https://www.udrop.com/file/PGtY/output_video.mp4",
-        "filename": "output_video.mp4"
+        "title": "Go Team! [Standard]",
+        "url": "https://www.udrop.com/file/PGtY/Go%20Team!%20(2026).mp4",
+        "filename": "Go Team! (2026).mp4"
       }
     ]
   },
