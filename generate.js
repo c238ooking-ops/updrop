@@ -72,6 +72,7 @@ function getEditionTag(filename) {
   if (lower.includes("imax")) tags.push("IMAX");
   if (lower.includes("extended")) tags.push("Extended");
   if (lower.includes("directors cut") || lower.includes("director's cut")) tags.push("Director's Cut");
+  if (lower.includes("theatrical")) tags.push("Theatrical Cut");
   if (lower.includes("workprint")) tags.push("Workprint");
   if (lower.includes("35mm")) tags.push("35mm Scan");
   if (lower.includes("unrated")) tags.push("Unrated");
@@ -89,7 +90,7 @@ function cleanGarbage(str) {
   return str
     .replace(/[\[\(\{].*?[\]\)\}]/g, " ")
     .replace(/[\._\-~+]/g, " ")
-    .replace(/\b(workprint|scan|35mm|70mm|vhsrip|vhs|telesync|camrip|cam)\b/gi, "")
+    .replace(/\b(theatrical|workprint|scan|35mm|70mm|vhsrip|vhs|telesync|camrip|cam)\b/gi, "")
     .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|brrip|bdrip|dvdrip|remux|open matte|extended|imax|directors cut|unrated)\b/gi, "")
     .replace(/\b(x264|x265|hevc|h264|h265|avc|10bit|aac|dts|truehd|atmos|ac3|ddp5\.1|dd5\.1|dual audio|hindi|english|subtitles|esub|subs)\b/gi, "")
     .replace(/\s+/g, " ")
@@ -146,7 +147,7 @@ function parseFilename(filename) {
           year = parseInt(lastYearMatch[0], 10);
           titlePart = candidateTitle;
         } else {
-          // If title was only a year (e.g., "2012.mkv")
+          // If title was only a year (e.g. "2012.mkv")
           titlePart = clean;
           year = null;
         }
@@ -166,7 +167,7 @@ function scoreCandidate(candTitle, candYearStr, targetTitle, targetYear) {
   const cYear = parseInt(candYearStr, 10);
   const tYear = targetYear ? parseInt(targetYear, 10) : null;
 
-  // Year Guard (allow +/- 1 for release date drift)
+  // Year Guard (allow +/- 1 for festival release drift)
   if (tYear && !isNaN(cYear)) {
     if (Math.abs(cYear - tYear) > 1) return -1;
   }
@@ -329,7 +330,7 @@ async function run() {
                 storedFilename = decodeURIComponent(parts[parts.length - 1]);
               }
 
-              // Standardize poster to Metahub CDN if key is tt...
+              // Route posters through Metahub CDN
               let currentPoster = entry.meta?.poster || "";
               if (key.startsWith("tt")) {
                 currentPoster = `https://images.metahub.space/poster/medium/${key.split(":")[0]}/img`;
@@ -372,12 +373,16 @@ async function run() {
         newDb[key] = { meta: cached.meta, streams: [] };
       }
 
-      newDb[key].streams.push({
-        name: "uDrop",
-        title: cached.streamTitle || `${cached.meta.name} [${edition}]`,
-        url: directUrl,
-        filename: file.filename
-      });
+      // Stacking check: Ensure version is appended without duplicating exact same URL
+      const streamExists = newDb[key].streams.some(s => s.url === directUrl);
+      if (!streamExists) {
+        newDb[key].streams.push({
+          name: "uDrop",
+          title: cached.streamTitle || `${cached.meta.name} [${edition}]`,
+          url: directUrl,
+          filename: file.filename
+        });
+      }
       reusedCount++;
       continue;
     }
@@ -400,7 +405,7 @@ async function run() {
       streamKey = `${meta.id}:${parsed.season}:${parsed.episode}`;
     }
 
-    // Route posters through Metahub CDN for lightweight, uniform delivery
+    // Standardize poster through Metahub CDN for lightweight, uniform delivery
     const standardizedPoster = (meta?.id && meta.id.startsWith("tt"))
       ? `https://images.metahub.space/poster/medium/${meta.id}/img`
       : (meta?.poster || "");
@@ -420,12 +425,16 @@ async function run() {
       ? `S${parsed.season} E${parsed.episode} [${edition}]`
       : `${meta?.name || parsed.title} [${edition}]`;
 
-    newDb[streamKey].streams.push({
-      name: "uDrop",
-      title: displayTitle,
-      url: directUrl,
-      filename: file.filename
-    });
+    // Multi-version stacking: check URL to avoid duplicates across pooled syncs
+    const streamExists = newDb[streamKey].streams.some(s => s.url === directUrl);
+    if (!streamExists) {
+      newDb[streamKey].streams.push({
+        name: "uDrop",
+        title: displayTitle,
+        url: directUrl,
+        filename: file.filename
+      });
+    }
   }
 
   fs.writeFileSync("database.json", JSON.stringify(newDb, null, 2));
