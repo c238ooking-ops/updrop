@@ -364,5 +364,20 @@
         "filename": "Family.Guy.S01E07.720p.DSNP.WEB-DL.AAC2.0.H.264-XDMovies.com.mkv"
       }
     ]
+  },
+  "tt0995031": {
+    "meta": {
+      "name": "Bhool Bhulaiyaa",
+      "poster": "https://images.metahub.space/poster/medium/tt0995031/img",
+      "type": "movie"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "Bhool Bhulaiyaa [Standard]",
+        "url": "https://www.udrop.com/file/PGsT/Bhool%20Bhulaiyaa%202007%20DvDrip%20X%20264%20AAC%203%20Wanxsz.mp4",
+        "filename": "Bhool Bhulaiyaa 2007 DvDrip X 264 AAC 3 Wanxsz.mp4"
+      }
+    ]
   }
 }
