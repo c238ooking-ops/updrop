@@ -1,4 +1,19 @@
 {
+  "custom_yrtnzj": {
+    "meta": {
+      "name": "output video",
+      "poster": "",
+      "type": "movie"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "output video [Standard]",
+        "url": "https://www.udrop.com/file/PGtY/output_video.mp4",
+        "filename": "output_video.mp4"
+      }
+    ]
+  },
   "tt0105271": {
     "meta": {
       "name": "Roja",
