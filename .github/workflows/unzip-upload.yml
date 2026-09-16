@@ -38,21 +38,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-
-      - name: Cache APT Dependencies
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt/archives
-          key: ${{ runner.os }}-apt-aria2-wget
-          restore-keys: |
-            ${{ runner.os }}-apt-
 
       - name: Install System & Python Tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends aria2 wget
-          pip install --upgrade requests
+          pip install --no-cache-dir requests
 
       - name: Download, Extract, Resolve Path & Upload
         env:
