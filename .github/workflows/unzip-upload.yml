@@ -1,0 +1,144 @@
+name: Unzip & Upload to uDrop
+
+on:
+  workflow_dispatch:
+    inputs:
+      zip_url:
+        description: 'Direct HTTPS URL to ZIP archive'
+        required: true
+      folder_id:
+        description: 'uDrop Target Folder ID (Optional, leave blank for root)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  unzip_and_upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Free Up Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/local/lib/android
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System & Python Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends aria2 wget
+          pip install requests
+
+      - name: Download, Extract, and Upload
+        env:
+          ZIP_URL: ${{ inputs.zip_url }}
+          FOLDER_ID: ${{ inputs.folder_id }}
+          KEY_1: ${{ secrets.UDROP_KEY1 }}
+          KEY_2: ${{ secrets.UDROP_KEY2 }}
+        run: |
+          python - << 'EOF'
+          import os
+          import zipfile
+          import requests
+
+          ZIP_URL = os.environ.get("ZIP_URL")
+          KEY_1 = os.environ.get("KEY_1")
+          KEY_2 = os.environ.get("KEY_2")
+          FOLDER_ID = os.environ.get("FOLDER_ID", "").strip()
+
+          API_BASE = "https://www.udrop.com/api/v2"
+
+          # 1. AUTHENTICATE
+          print("🔑 Authenticating with uDrop API...")
+          auth_res = requests.post(f"{API_BASE}/authorize", data={"key1": KEY_1, "key2": KEY_2})
+          auth_data = auth_res.json()
+
+          if auth_data.get("_status") != "success":
+              raise Exception(f"Authentication Failed: {auth_data.get('response', 'Unknown Error')}")
+
+          access_token = auth_data["data"]["access_token"]
+          account_id = auth_data["data"]["account_id"]
+          print(f"✅ Authenticated! Account ID: {account_id}")
+
+          # 2. DOWNLOAD & EXTRACT
+          print("\n📥 Downloading ZIP archive...")
+          dl_cmd = f'aria2c -x 16 -s 16 -k 1M --file-allocation=none -o "archive.zip" "{ZIP_URL}" || wget -O "archive.zip" "{ZIP_URL}"'
+          if os.system(dl_cmd) != 0:
+              raise Exception("Failed to download ZIP file.")
+
+          print("📦 Extracting archive...")
+          os.makedirs("extracted_videos", exist_ok=True)
+          with zipfile.ZipFile("archive.zip", "r") as zip_ref:
+              zip_ref.extractall("extracted_videos")
+
+          os.remove("archive.zip")
+
+          video_exts = ('.mp4', '.mkv', '.avi', '.webm', '.ts')
+          video_files = []
+          for root, _, files in os.walk("extracted_videos"):
+              for file in files:
+                  if file.lower().endswith(video_exts):
+                      video_files.append(os.path.join(root, file))
+
+          print(f"🎬 Found {len(video_files)} video file(s).")
+          if not video_files:
+              print("⚠️ No video files located in archive.")
+              exit(0)
+
+          # 3. UPLOAD TO UDROP
+          print("\n🚀 Uploading files to uDrop...")
+          ready_links = []
+
+          for file_path in sorted(video_files):
+              filename = os.path.basename(file_path)
+              print(f"Uploading: {filename}...")
+
+              with open(file_path, "rb") as f:
+                  form_data = {
+                      "access_token": access_token,
+                      "account_id": account_id,
+                  }
+                  if FOLDER_ID:
+                      form_data["folder_id"] = FOLDER_ID
+
+                  files_payload = {
+                      "upload_file": (filename, f)
+                  }
+
+                  upload_res = requests.post(f"{API_BASE}/file/upload", data=form_data, files=files_payload)
+                  try:
+                      res_json = upload_res.json()
+                  except Exception:
+                      print(f"  ❌ Invalid JSON returned: {upload_res.text[:200]}")
+                      continue
+
+                  if res_json.get("_status") == "success" and res_json.get("data"):
+                      data_obj = res_json["data"]
+                      file_meta = data_obj[0] if isinstance(data_obj, list) else data_obj
+                      
+                      short_url = file_meta.get("short_url") or file_meta.get("shortUrl")
+                      if short_url:
+                          direct_link = f"https://www.udrop.com/file/{short_url}/{filename}"
+                      else:
+                          direct_link = file_meta.get("url") or file_meta.get("download_url")
+
+                      print(f"  -> Uploaded: {direct_link}")
+                      ready_links.append(direct_link)
+                  else:
+                      print(f"  ❌ Failed: {res_json.get('response', 'Upload error')}")
+
+          # 4. SUMMARY
+          print("\n" + "="*50)
+          print("📋 DIRECT STREAM / DOWNLOAD LINKS:")
+          print("="*50)
+          print("\n".join(ready_links))
+          EOF
