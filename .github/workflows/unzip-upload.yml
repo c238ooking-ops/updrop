@@ -117,48 +117,76 @@ jobs:
           print(f"✅ Authenticated! Account ID: {account_id}")
 
           # 3. RECURSIVE FOLDER RESOLUTION & CREATION
-          current_parent_id = ""
+          target_folder_id = ""
+          
           if FOLDER_PATH:
-              segments = [s.strip() for s in re.split(r'[\\/]+', FOLDER_PATH) if s.strip()]
-              print(f"📂 Resolving nested path: {' ➔ '.join(segments)}")
+              # Check if a direct numeric folder ID was passed (e.g., for shared folders)
+              if FOLDER_PATH.strip().isdigit():
+                  target_folder_id = FOLDER_PATH.strip()
+                  print(f"🎯 Direct Folder ID provided: {target_folder_id}")
+              else:
+                  segments = [s.strip() for s in re.split(r'[\\/]+', FOLDER_PATH) if s.strip()]
+                  print(f"📂 Resolving nested path: {' ➔ '.join(segments)}")
+                  current_parent_id = ""
 
-              for segment in segments:
-                  list_payload = {"access_token": access_token, "account_id": account_id}
-                  if current_parent_id:
-                      list_payload["folder_id"] = current_parent_id
+                  for segment in segments:
+                      list_payload = {
+                          "access_token": access_token, 
+                          "account_id": account_id
+                      }
+                      if current_parent_id:
+                          list_payload["folder_id"] = str(current_parent_id)
+                          list_payload["parent_id"] = str(current_parent_id)
 
-                  list_res = requests.post(f"{API_BASE}/folder/list", data=list_payload).json()
-                  found_id = None
+                      list_res = requests.post(f"{API_BASE}/folder/list", data=list_payload).json()
+                      found_id = None
 
-                  if list_res.get("_status") == "success" and list_res.get("data"):
-                      for f in list_res["data"]:
-                          f_name = str(f.get("folder_name", "")).strip()
+                      # uDrop data can be list, or dict containing 'folders'
+                      folder_items = []
+                      if list_res.get("_status") == "success" and list_res.get("data"):
+                          raw_data = list_res["data"]
+                          if isinstance(raw_data, list):
+                              folder_items = raw_data
+                          elif isinstance(raw_data, dict):
+                              folder_items = raw_data.get("folders", []) or raw_data.get("list", [])
+
+                      print(f"  🔍 Scanning {len(folder_items)} folder(s) for '{segment}'...")
+                      for f in folder_items:
+                          # Inspect all possible name fields returned by uDrop API
+                          f_name = str(f.get("folder_name") or f.get("name") or f.get("title") or "").strip()
+                          f_id = str(f.get("folder_id") or f.get("id") or "")
+                          
+                          # Exact case-insensitive match
                           if f_name.lower() == segment.lower():
-                              found_id = str(f.get("folder_id") or f.get("id"))
-                              print(f"  📁 Found '{f_name}' (ID: {found_id})")
+                              found_id = f_id
+                              print(f"  📁 Matched existing folder: '{f_name}' (ID: {found_id})")
                               break
 
-                  if not found_id:
-                      print(f"  📂 Creating subfolder '{segment}'...")
-                      create_payload = {
-                          "access_token": access_token,
-                          "account_id": account_id,
-                          "folder_name": segment,
-                          "parent_id": current_parent_id
-                      }
-                      create_res = requests.post(f"{API_BASE}/folder/create", data=create_payload).json()
-                      if create_res.get("_status") == "success" and create_res.get("data"):
-                          data_obj = create_res["data"]
-                          found_id = str(data_obj.get("folder_id") or data_obj.get("id"))
-                          print(f"  ✅ Created '{segment}' (ID: {found_id})")
-                      else:
-                          print(f"  ⚠️ Failed creating folder '{segment}'. Falling back to current level.")
-                          break
+                      if not found_id:
+                          print(f"  📂 Folder '{segment}' not found. Creating it...")
+                          create_payload = {
+                              "access_token": access_token,
+                              "account_id": account_id,
+                              "folder_name": segment
+                          }
+                          if current_parent_id:
+                              create_payload["parent_id"] = str(current_parent_id)
+                              create_payload["folder_id"] = str(current_parent_id)
 
-                  current_parent_id = found_id
+                          create_res = requests.post(f"{API_BASE}/folder/create", data=create_payload).json()
+                          if create_res.get("_status") == "success" and create_res.get("data"):
+                              data_obj = create_res["data"]
+                              found_id = str(data_obj.get("folder_id") or data_obj.get("id"))
+                              print(f"  ✅ Created folder '{segment}' (ID: {found_id})")
+                          else:
+                              print(f"  ⚠️ Could not create '{segment}' ({create_res.get('response')}). Falling back to parent level.")
+                              break
 
-          target_folder_id = current_parent_id
-          print(f"🎯 Target Upload Folder ID: {target_folder_id or 'Root'}")
+                      current_parent_id = found_id
+
+                  target_folder_id = current_parent_id
+
+          print(f"🎯 Final Target Upload Folder ID: {target_folder_id or 'Root'}")
 
           # 4. RESOLVE LINK & RUN 16-CONNECTION MULTI-THREADED DOWNLOAD
           download_url = FILE_URL
