@@ -6,19 +6,12 @@ on:
       file_url:
         description: 'Direct HTTPS URL (Pixeldrain, R2, direct ZIP, etc.)'
         required: true
-      account_target:
-        description: 'Choose target uDrop Account'
+      account_number:
+        description: 'Account Number in JSON list (e.g. 1, 2, 3, 10, 11)'
         required: true
-        default: 'Account 2 (Secondary)'
-        type: choice
-        options:
-          - 'Account 1 (Primary)'
-          - 'Account 2 (Secondary)'
-          - 'Account 3'
-          - 'Account 4'
-          - 'Account 5'
+        default: '2'
       folder_path:
-        description: 'Folder Path (e.g. "m/my videos", case-insensitive; leave blank for root)'
+        description: 'Folder Path (e.g. "m2/series/2 broke girls season 05"; leave blank for root)'
         required: false
         default: ''
 
@@ -39,7 +32,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install System & Python Tools
+      - name: Install System Tools & Dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends aria2 wget
@@ -48,7 +41,7 @@ jobs:
       - name: Download, Extract, Resolve Path & Upload
         env:
           FILE_URL: ${{ inputs.file_url }}
-          TARGET_ACC: ${{ inputs.account_target }}
+          ACCOUNT_NUM: ${{ inputs.account_number }}
           FOLDER_PATH: ${{ inputs.folder_path }}
           ACCOUNTS_JSON: ${{ secrets.UDROP_ACCOUNTS_JSON }}
           FALLBACK_KEY1: ${{ secrets.UDROP_KEY1 }}
@@ -63,48 +56,44 @@ jobs:
           import requests
 
           FILE_URL = os.environ.get("FILE_URL", "").strip()
-          TARGET_ACC = os.environ.get("TARGET_ACC", "Account 1 (Primary)").strip()
+          ACCOUNT_RAW_NUM = os.environ.get("ACCOUNT_NUM", "1").strip()
           FOLDER_PATH = os.environ.get("FOLDER_PATH", "").strip()
           ACCOUNTS_RAW = os.environ.get("ACCOUNTS_JSON", "").strip()
 
           API_BASE = "https://www.udrop.com/api/v2"
 
-          # 1. PARSE KEYS FROM JSON BY POSITION OR NAME
-          acc_index_map = {
-              "account 1 (primary)": 0,
-              "account 2 (secondary)": 1,
-              "account 3": 2,
-              "account 4": 3,
-              "account 5": 4
-          }
-          target_idx = acc_index_map.get(TARGET_ACC.lower(), 0)
-
+          # 1. PARSE KEYS DYNAMICALLY BY ACCOUNT NUMBER
           key1, key2 = None, None
+
+          # Convert human-readable 1-based number (1, 2, 10...) to 0-based index
+          try:
+              target_idx = max(0, int(ACCOUNT_RAW_NUM) - 1)
+          except ValueError:
+              print(f"⚠️ Invalid number '{ACCOUNT_RAW_NUM}', defaulting to Account 1")
+              target_idx = 0
+
           if ACCOUNTS_RAW:
               try:
                   acc_data = json.loads(ACCOUNTS_RAW)
                   if isinstance(acc_data, list):
                       if target_idx < len(acc_data):
-                          key1 = acc_data[target_idx].get("key1")
-                          key2 = acc_data[target_idx].get("key2")
-                          print(f"🎯 Selected [{target_idx}]: '{acc_data[target_idx].get('name')}'")
-                      if not key1:
-                          for a in acc_data:
-                              name = str(a.get("name", "")).lower()
-                              if ("second" in TARGET_ACC.lower() and "second" in name) or \
-                                 ("primary" in TARGET_ACC.lower() and "primary" in name):
-                                  key1 = a.get("key1")
-                                  key2 = a.get("key2")
-                                  break
+                          selected = acc_data[target_idx]
+                          key1 = selected.get("key1")
+                          key2 = selected.get("key2")
+                          acc_name = selected.get("name", f"Account {target_idx + 1}")
+                          print(f"🎯 Selected Account #{ACCOUNT_RAW_NUM} (Index [{target_idx}]): '{acc_name}'")
+                      else:
+                          print(f"⚠️ Account #{ACCOUNT_RAW_NUM} exceeds total accounts ({len(acc_data)}) in JSON!")
               except Exception as e:
-                  print(f"⚠️ JSON parse warning: {e}")
+                  print(f"⚠️ JSON parse error: {e}")
 
           if not key1 or not key2:
+              print("⚠️ Falling back to default repository secrets UDROP_KEY1 / UDROP_KEY2...")
               key1 = os.environ.get("FALLBACK_KEY1")
               key2 = os.environ.get("FALLBACK_KEY2")
 
           if not key1 or not key2:
-              raise Exception(f"❌ Missing API credentials for {TARGET_ACC}!")
+              raise Exception(f"❌ Missing API credentials for Account #{ACCOUNT_RAW_NUM}!")
 
           # 2. AUTHENTICATE
           auth_res = requests.post(f"{API_BASE}/authorize", data={"key1": key1, "key2": key2})
@@ -116,66 +105,53 @@ jobs:
           account_id = auth_data["data"]["account_id"]
           print(f"✅ Authenticated! Account ID: {account_id}")
 
-          # 3. RECURSIVE FOLDER RESOLUTION & CREATION (Using uDrop /file/list & /folder/create)
+          # 3. RECURSIVE FOLDER NAVIGATION VIA /folder/listing
           target_folder_id = ""
-          
           if FOLDER_PATH:
-              # Support direct numeric folder IDs (e.g. shared folders)
               if FOLDER_PATH.strip().isdigit():
                   target_folder_id = FOLDER_PATH.strip()
-                  print(f"🎯 Direct Folder ID provided: {target_folder_id}")
+                  print(f"🎯 Direct Numeric Folder ID: {target_folder_id}")
               else:
                   segments = [s.strip() for s in re.split(r'[\\/]+', FOLDER_PATH) if s.strip()]
                   print(f"📂 Resolving nested path: {' ➔ '.join(segments)}")
-                  current_parent_id = ""
+
+                  current_parent_id = None
 
                   for segment in segments:
-                      # uDrop uses /file/list to retrieve contents (files + folders)
-                      list_payload = {
-                          "access_token": access_token, 
-                          "account_id": account_id
-                      }
-                      if current_parent_id:
-                          list_payload["folder_id"] = str(current_parent_id)
+                      listing_res = requests.post(
+                          f"{API_BASE}/folder/listing",
+                          data={"access_token": access_token, "account_id": account_id}
+                      ).json()
 
-                      list_res = requests.post(f"{API_BASE}/file/list", data=list_payload).json()
+                      folders_list = []
+                      if listing_res.get("_status") == "success" and listing_res.get("data"):
+                          data_node = listing_res["data"]
+                          if isinstance(data_node, dict):
+                              folders_list = data_node.get("folders", [])
+                          elif isinstance(data_node, list):
+                              folders_list = data_node
+
                       found_id = None
+                      for f in folders_list:
+                          if f.get("status") == "trash":
+                              continue
 
-                      # Parse entries from uDrop response
-                      items = []
-                      if list_res.get("_status") == "success" and list_res.get("data"):
-                          raw_data = list_res["data"]
-                          if isinstance(raw_data, list):
-                              items = raw_data
-                          elif isinstance(raw_data, dict):
-                              items = raw_data.get("files", []) or raw_data.get("list", []) or raw_data.get("folders", [])
+                          name_match = str(f.get("folderName", "")).strip().lower() == segment.lower()
+                          parent_val = f.get("parentId")
 
-                      # Filter and scan for folders matching segment name
-                      folders_found = []
-                      for item in items:
-                          # Check if item is a folder
-                          is_dir = (
-                              str(item.get("is_folder")) in ("1", "true", "True") or
-                              str(item.get("is_dir")) in ("1", "true", "True") or
-                              item.get("type") in ("folder", "dir") or
-                              "folder_id" in item
-                          )
-                          
-                          folder_title = str(item.get("filename") or item.get("name") or item.get("folder_name") or item.get("title") or "").strip()
-                          folder_identifier = str(item.get("folder_id") or item.get("file_id") or item.get("id") or "")
-                          
-                          if is_dir and folder_title:
-                              folders_found.append((folder_title, folder_identifier))
-                              if folder_title.lower() == segment.lower():
-                                  found_id = folder_identifier
-                                  print(f"  📁 Matched existing folder: '{folder_title}' (ID: {found_id})")
-                                  break
+                          parent_match = False
+                          if current_parent_id is None:
+                              parent_match = (parent_val is None or str(parent_val).strip() in ("", "0"))
+                          else:
+                              parent_match = (str(parent_val) == str(current_parent_id))
 
-                      print(f"  🔍 Found {len(folders_found)} folder(s) at current level.")
+                          if name_match and parent_match:
+                              found_id = str(f.get("id"))
+                              print(f"  📁 Found existing folder: '{f.get('folderName')}' (ID: {found_id})")
+                              break
 
-                      # If folder doesn't exist, create it via /folder/create
                       if not found_id:
-                          print(f"  📂 Folder '{segment}' not found. Creating it...")
+                          print(f"  📂 Creating subfolder '{segment}'...")
                           create_payload = {
                               "access_token": access_token,
                               "account_id": account_id,
@@ -188,18 +164,18 @@ jobs:
                           if create_res.get("_status") == "success" and create_res.get("data"):
                               data_obj = create_res["data"]
                               found_id = str(data_obj.get("folder_id") or data_obj.get("id"))
-                              print(f"  ✅ Created folder '{segment}' (ID: {found_id})")
+                              print(f"  ✅ Created '{segment}' (ID: {found_id})")
                           else:
-                              print(f"  ⚠️ Could not create '{segment}' ({create_res.get('response')}). Uploading to current level.")
+                              print(f"  ⚠️ Failed creating folder '{segment}'. Falling back to current level.")
                               break
 
                       current_parent_id = found_id
 
-                  target_folder_id = current_parent_id
+                  target_folder_id = current_parent_id or ""
 
           print(f"🎯 Final Target Upload Folder ID: {target_folder_id or 'Root'}")
 
-          # 4. RESOLVE LINK & RUN 16-CONNECTION MULTI-THREADED DOWNLOAD
+          # 4. RESOLVE LINK & 16-CONNECTION ACCELERATED DOWNLOAD
           download_url = FILE_URL
           pixeldrain_match = re.search(r'pixeldrain\.(?:dev|com)/u/([a-zA-Z0-9_-]+)', download_url)
           if pixeldrain_match:
@@ -264,7 +240,7 @@ jobs:
               with open(file_path, "rb") as f:
                   form_data = {"access_token": access_token, "account_id": account_id}
                   if target_folder_id:
-                      form_data["folder_id"] = target_folder_id
+                      form_data["folder_id"] = str(target_folder_id)
 
                   upload_res = requests.post(f"{API_BASE}/file/upload", data=form_data, files={"upload_file": (filename, f)})
                   try:
