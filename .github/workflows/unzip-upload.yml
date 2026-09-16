@@ -105,7 +105,7 @@ jobs:
           account_id = auth_data["data"]["account_id"]
           print(f"✅ Authenticated! Account ID: {account_id}")
 
-          # 3. ROBUST GLOBAL FOLDER NAVIGATION VIA DICTIONARY LOOKUP
+          # 3. OFFICIAL SPEC FOLDER RESOLUTION & CREATION
           target_folder_id = ""
           if FOLDER_PATH:
               if FOLDER_PATH.strip().isdigit():
@@ -115,15 +115,18 @@ jobs:
                   segments = [s.strip() for s in re.split(r'[\\/]+', FOLDER_PATH) if s.strip()]
                   print(f"📂 Resolving nested path: {' ➔ '.join(segments)}")
 
-                  current_parent_id = None
+                  current_parent_id = ""  # Blank for root
 
                   for segment in segments:
-                      # 1. Fetch entire account folder mapping with wide limit
-                      listing_res = requests.post(f"{API_BASE}/folder/listing", data={
+                      # Query listing with the exact documentation parameter: parent_folder_id
+                      list_payload = {
                           "access_token": access_token,
-                          "account_id": account_id,
-                          "per_page": 500
-                      }).json()
+                          "account_id": account_id
+                      }
+                      if current_parent_id:
+                          list_payload["parent_folder_id"] = str(current_parent_id)
+
+                      listing_res = requests.post(f"{API_BASE}/folder/listing", data=list_payload).json()
 
                       folders_list = []
                       if listing_res.get("_status") == "success" and listing_res.get("data"):
@@ -131,50 +134,33 @@ jobs:
                           folders_list = d.get("folders", []) if isinstance(d, dict) else d
 
                       found_id = None
-
-                      # Pass 1: Try exact name + parent ID match
                       for f in folders_list:
                           if f.get("status") == "trash":
                               continue
-                          name = str(f.get("folderName", "")).strip()
-                          parent_val = f.get("parentId")
-                          if name.lower() == segment.lower():
-                              if current_parent_id is None or str(parent_val) == str(current_parent_id):
-                                  found_id = str(f.get("id"))
-                                  print(f"  📁 Found folder (hierarchy match): '{name}' (ID: {found_id})")
-                                  break
+                          f_name = str(f.get("folderName", "")).strip()
+                          if f_name.lower() == segment.lower():
+                              found_id = str(f.get("id"))
+                              print(f"  📁 Found folder inside {current_parent_id or 'Root'}: '{f_name}' (ID: {found_id})")
+                              break
 
-                      # Pass 2: Fallback to global match by name anywhere in account
+                      # Create folder using the exact documentation parameter: parent_id
                       if not found_id:
-                          for f in folders_list:
-                              if f.get("status") == "trash":
-                                  continue
-                              name = str(f.get("folderName", "")).strip()
-                              if name.lower() == segment.lower():
-                                  found_id = str(f.get("id"))
-                                  print(f"  📁 Found existing folder (name match): '{name}' (ID: {found_id})")
-                                  break
-
-                      # Pass 3: If still missing, create the folder
-                      if not found_id:
-                          print(f"  📂 Folder '{segment}' does not exist. Creating under ID {current_parent_id or 'Root'}...")
+                          print(f"  📂 Folder '{segment}' not found inside {current_parent_id or 'Root'}. Creating it...")
                           create_payload = {
                               "access_token": access_token,
                               "account_id": account_id,
-                              "folder_name": segment,
-                              "folderName": segment
+                              "folder_name": segment
                           }
                           if current_parent_id:
-                              create_payload["parentId"] = str(current_parent_id)
                               create_payload["parent_id"] = str(current_parent_id)
 
                           create_res = requests.post(f"{API_BASE}/folder/create", data=create_payload).json()
                           if create_res.get("_status") == "success" and create_res.get("data"):
                               data_obj = create_res["data"]
-                              found_id = str(data_obj.get("folder_id") or data_obj.get("id"))
+                              found_id = str(data_obj.get("id") or data_obj.get("folder_id"))
                               print(f"  ✅ Created '{segment}' (ID: {found_id})")
                           else:
-                              print(f"  ⚠️ Failed to create folder '{segment}'.")
+                              print(f"  ⚠️ Failed creating '{segment}' ({create_res.get('response')}).")
                               break
 
                       current_parent_id = found_id
