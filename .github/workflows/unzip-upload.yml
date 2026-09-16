@@ -116,11 +116,11 @@ jobs:
           account_id = auth_data["data"]["account_id"]
           print(f"✅ Authenticated! Account ID: {account_id}")
 
-          # 3. RECURSIVE FOLDER RESOLUTION & CREATION
+          # 3. RECURSIVE FOLDER RESOLUTION & CREATION (Using uDrop /file/list & /folder/create)
           target_folder_id = ""
           
           if FOLDER_PATH:
-              # Check if a direct numeric folder ID was passed (e.g., for shared folders)
+              # Support direct numeric folder IDs (e.g. shared folders)
               if FOLDER_PATH.strip().isdigit():
                   target_folder_id = FOLDER_PATH.strip()
                   print(f"🎯 Direct Folder ID provided: {target_folder_id}")
@@ -130,38 +130,50 @@ jobs:
                   current_parent_id = ""
 
                   for segment in segments:
+                      # uDrop uses /file/list to retrieve contents (files + folders)
                       list_payload = {
                           "access_token": access_token, 
                           "account_id": account_id
                       }
                       if current_parent_id:
                           list_payload["folder_id"] = str(current_parent_id)
-                          list_payload["parent_id"] = str(current_parent_id)
 
-                      list_res = requests.post(f"{API_BASE}/folder/list", data=list_payload).json()
+                      list_res = requests.post(f"{API_BASE}/file/list", data=list_payload).json()
                       found_id = None
 
-                      # uDrop data can be list, or dict containing 'folders'
-                      folder_items = []
+                      # Parse entries from uDrop response
+                      items = []
                       if list_res.get("_status") == "success" and list_res.get("data"):
                           raw_data = list_res["data"]
                           if isinstance(raw_data, list):
-                              folder_items = raw_data
+                              items = raw_data
                           elif isinstance(raw_data, dict):
-                              folder_items = raw_data.get("folders", []) or raw_data.get("list", [])
+                              items = raw_data.get("files", []) or raw_data.get("list", []) or raw_data.get("folders", [])
 
-                      print(f"  🔍 Scanning {len(folder_items)} folder(s) for '{segment}'...")
-                      for f in folder_items:
-                          # Inspect all possible name fields returned by uDrop API
-                          f_name = str(f.get("folder_name") or f.get("name") or f.get("title") or "").strip()
-                          f_id = str(f.get("folder_id") or f.get("id") or "")
+                      # Filter and scan for folders matching segment name
+                      folders_found = []
+                      for item in items:
+                          # Check if item is a folder
+                          is_dir = (
+                              str(item.get("is_folder")) in ("1", "true", "True") or
+                              str(item.get("is_dir")) in ("1", "true", "True") or
+                              item.get("type") in ("folder", "dir") or
+                              "folder_id" in item
+                          )
                           
-                          # Exact case-insensitive match
-                          if f_name.lower() == segment.lower():
-                              found_id = f_id
-                              print(f"  📁 Matched existing folder: '{f_name}' (ID: {found_id})")
-                              break
+                          folder_title = str(item.get("filename") or item.get("name") or item.get("folder_name") or item.get("title") or "").strip()
+                          folder_identifier = str(item.get("folder_id") or item.get("file_id") or item.get("id") or "")
+                          
+                          if is_dir and folder_title:
+                              folders_found.append((folder_title, folder_identifier))
+                              if folder_title.lower() == segment.lower():
+                                  found_id = folder_identifier
+                                  print(f"  📁 Matched existing folder: '{folder_title}' (ID: {found_id})")
+                                  break
 
+                      print(f"  🔍 Found {len(folders_found)} folder(s) at current level.")
+
+                      # If folder doesn't exist, create it via /folder/create
                       if not found_id:
                           print(f"  📂 Folder '{segment}' not found. Creating it...")
                           create_payload = {
@@ -171,7 +183,6 @@ jobs:
                           }
                           if current_parent_id:
                               create_payload["parent_id"] = str(current_parent_id)
-                              create_payload["folder_id"] = str(current_parent_id)
 
                           create_res = requests.post(f"{API_BASE}/folder/create", data=create_payload).json()
                           if create_res.get("_status") == "success" and create_res.get("data"):
@@ -179,7 +190,7 @@ jobs:
                               found_id = str(data_obj.get("folder_id") or data_obj.get("id"))
                               print(f"  ✅ Created folder '{segment}' (ID: {found_id})")
                           else:
-                              print(f"  ⚠️ Could not create '{segment}' ({create_res.get('response')}). Falling back to parent level.")
+                              print(f"  ⚠️ Could not create '{segment}' ({create_res.get('response')}). Uploading to current level.")
                               break
 
                       current_parent_id = found_id
