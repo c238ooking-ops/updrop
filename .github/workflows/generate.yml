@@ -4,7 +4,7 @@ on:
   schedule:
     # Runs every 6 hours automatically
     - cron: '0 */6 * * *'
-  workflow_dispatch: # Allows manual trigger from Actions tab
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -33,6 +33,15 @@ jobs:
           NODE_OPTIONS: "--no-warnings"
         run: node generate.js
 
+      - name: Push Database Instantly to Cloudflare Worker KV
+        run: |
+          echo "Pushing database.json to Cloudflare Worker..."
+          curl -s -f -X POST "https://gofile-stremio-addon.c238ooking.workers.dev/sync" \
+            -H "Content-Type: application/json" \
+            -H "x-sync-secret: my_super_secret_sync_key_123" \
+            --data-binary @database.json
+          echo "✅ KV database synchronized with zero delay!"
+
       - name: Commit & Push Changes
         run: |
           git config --global user.name "github-actions[bot]"
@@ -40,7 +49,6 @@ jobs:
           
           git add database.json
           
-          # Only commit and push if database.json actually changed
           if git diff --staged --quiet; then
             echo "No changes in database.json. Skipping commit."
           else
