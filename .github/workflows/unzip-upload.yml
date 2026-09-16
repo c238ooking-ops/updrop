@@ -17,8 +17,8 @@ on:
           - 'Account 3'
           - 'Account 4'
           - 'Account 5'
-      folder_name:
-        description: 'Folder Name (Finds existing or creates automatically; leave blank for root)'
+      folder_path:
+        description: 'Folder Path (e.g. "m/my videos", case-insensitive; leave blank for root)'
         required: false
         default: ''
 
@@ -32,28 +32,33 @@ jobs:
     steps:
       - name: Free Up Runner Disk Space
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY" /usr/local/lib/android
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install System & Python Dependencies
+      - name: Cache APT Dependencies
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: ${{ runner.os }}-apt-aria2-wget
+          restore-keys: |
+            ${{ runner.os }}-apt-
+
+      - name: Install System & Python Tools
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends aria2 wget
-          pip install requests
+          pip install --upgrade requests
 
-      - name: Download, Extract, Auto-Folder & Upload
+      - name: Download, Extract, Resolve Path & Upload
         env:
           FILE_URL: ${{ inputs.file_url }}
           TARGET_ACC: ${{ inputs.account_target }}
-          FOLDER_NAME: ${{ inputs.folder_name }}
+          FOLDER_PATH: ${{ inputs.folder_path }}
           ACCOUNTS_JSON: ${{ secrets.UDROP_ACCOUNTS_JSON }}
           FALLBACK_KEY1: ${{ secrets.UDROP_KEY1 }}
           FALLBACK_KEY2: ${{ secrets.UDROP_KEY2 }}
@@ -68,16 +73,12 @@ jobs:
 
           FILE_URL = os.environ.get("FILE_URL", "").strip()
           TARGET_ACC = os.environ.get("TARGET_ACC", "Account 1 (Primary)").strip()
-          FOLDER_NAME = os.environ.get("FOLDER_NAME", "").strip()
+          FOLDER_PATH = os.environ.get("FOLDER_PATH", "").strip()
           ACCOUNTS_RAW = os.environ.get("ACCOUNTS_JSON", "").strip()
 
           API_BASE = "https://www.udrop.com/api/v2"
 
-          # 1. PARSE KEYS FROM JSON BY NAME OR INDEX
-          key1 = None
-          key2 = None
-
-          # Map dropdown selection to array index
+          # 1. PARSE KEYS FROM JSON BY POSITION OR NAME
           acc_index_map = {
               "account 1 (primary)": 0,
               "account 2 (secondary)": 1,
@@ -87,18 +88,15 @@ jobs:
           }
           target_idx = acc_index_map.get(TARGET_ACC.lower(), 0)
 
+          key1, key2 = None, None
           if ACCOUNTS_RAW:
               try:
                   acc_data = json.loads(ACCOUNTS_RAW)
                   if isinstance(acc_data, list):
-                      # Try matching by index first
                       if target_idx < len(acc_data):
                           key1 = acc_data[target_idx].get("key1")
                           key2 = acc_data[target_idx].get("key2")
-                          acc_name = acc_data[target_idx].get("name", f"Index {target_idx}")
-                          print(f"🎯 Selected account by position [{target_idx}]: '{acc_name}'")
-                      
-                      # If not found by index, fuzzy match by name
+                          print(f"🎯 Selected [{target_idx}]: '{acc_data[target_idx].get('name')}'")
                       if not key1:
                           for a in acc_data:
                               name = str(a.get("name", "")).lower()
@@ -106,13 +104,11 @@ jobs:
                                  ("primary" in TARGET_ACC.lower() and "primary" in name):
                                   key1 = a.get("key1")
                                   key2 = a.get("key2")
-                                  print(f"🎯 Matched account by name: '{a.get('name')}'")
                                   break
               except Exception as e:
-                  print(f"⚠️ Failed to parse UDROP_ACCOUNTS_JSON: {e}")
+                  print(f"⚠️ JSON parse warning: {e}")
 
           if not key1 or not key2:
-              print(f"⚠️ Falling back to default UDROP_KEY1/KEY2 secrets...")
               key1 = os.environ.get("FALLBACK_KEY1")
               key2 = os.environ.get("FALLBACK_KEY2")
 
@@ -120,96 +116,102 @@ jobs:
               raise Exception(f"❌ Missing API credentials for {TARGET_ACC}!")
 
           # 2. AUTHENTICATE
-          print(f"🔑 Authenticating with uDrop...")
           auth_res = requests.post(f"{API_BASE}/authorize", data={"key1": key1, "key2": key2})
           auth_data = auth_res.json()
-
           if auth_data.get("_status") != "success":
-              raise Exception(f"Authentication Failed: {auth_data.get('response', 'Unknown Error')}")
+              raise Exception(f"Auth failed: {auth_data.get('response')}")
 
           access_token = auth_data["data"]["access_token"]
           account_id = auth_data["data"]["account_id"]
-          print(f"✅ Authenticated as Account ID: {account_id}")
+          print(f"✅ Authenticated! Account ID: {account_id}")
 
-          # 3. AUTO FIND OR CREATE FOLDER
-          final_folder_id = ""
-          if FOLDER_NAME:
-              print(f"📁 Checking folder: '{FOLDER_NAME}'...")
-              list_res = requests.post(
-                  f"{API_BASE}/folder/list",
-                  data={"access_token": access_token, "account_id": account_id}
-              )
-              list_json = list_res.json()
-              existing_id = None
+          # 3. RECURSIVE FOLDER RESOLUTION & CREATION
+          current_parent_id = ""
+          if FOLDER_PATH:
+              segments = [s.strip() for s in re.split(r'[\\/]+', FOLDER_PATH) if s.strip()]
+              print(f"📂 Resolving nested path: {' ➔ '.join(segments)}")
 
-              if list_json.get("_status") == "success" and list_json.get("data"):
-                  for f in list_json["data"]:
-                      if str(f.get("folder_name", "")).strip().lower() == FOLDER_NAME.lower():
-                          existing_id = f.get("folder_id") or f.get("id")
-                          break
+              for segment in segments:
+                  list_payload = {"access_token": access_token, "account_id": account_id}
+                  if current_parent_id:
+                      list_payload["folder_id"] = current_parent_id
 
-              if existing_id:
-                  final_folder_id = str(existing_id)
-                  print(f"✅ Found existing folder! ID: {final_folder_id}")
-              else:
-                  print(f"📂 Creating folder '{FOLDER_NAME}'...")
-                  create_res = requests.post(
-                      f"{API_BASE}/folder/create",
-                      data={
+                  list_res = requests.post(f"{API_BASE}/folder/list", data=list_payload).json()
+                  found_id = None
+
+                  if list_res.get("_status") == "success" and list_res.get("data"):
+                      for f in list_res["data"]:
+                          f_name = str(f.get("folder_name", "")).strip()
+                          if f_name.lower() == segment.lower():
+                              found_id = str(f.get("folder_id") or f.get("id"))
+                              print(f"  📁 Found '{f_name}' (ID: {found_id})")
+                              break
+
+                  if not found_id:
+                      print(f"  📂 Creating subfolder '{segment}'...")
+                      create_payload = {
                           "access_token": access_token,
                           "account_id": account_id,
-                          "folder_name": FOLDER_NAME,
-                          "parent_id": ""
+                          "folder_name": segment,
+                          "parent_id": current_parent_id
                       }
-                  )
-                  create_json = create_res.json()
-                  if create_json.get("_status") == "success" and create_json.get("data"):
-                      data_obj = create_json["data"]
-                      final_folder_id = str(data_obj.get("folder_id") or data_obj.get("id"))
-                      print(f"✅ Created folder successfully! ID: {final_folder_id}")
-                  else:
-                      print(f"⚠️ Failed to create folder. Using root folder.")
-                      final_folder_id = ""
+                      create_res = requests.post(f"{API_BASE}/folder/create", data=create_payload).json()
+                      if create_res.get("_status") == "success" and create_res.get("data"):
+                          data_obj = create_res["data"]
+                          found_id = str(data_obj.get("folder_id") or data_obj.get("id"))
+                          print(f"  ✅ Created '{segment}' (ID: {found_id})")
+                      else:
+                          print(f"  ⚠️ Failed creating folder '{segment}'. Falling back to current level.")
+                          break
 
-          # 4. RESOLVE PIXELDRAIN & DIRECT DOWNLOAD LINKS
+                  current_parent_id = found_id
+
+          target_folder_id = current_parent_id
+          print(f"🎯 Target Upload Folder ID: {target_folder_id or 'Root'}")
+
+          # 4. RESOLVE LINK & RUN 16-CONNECTION MULTI-THREADED DOWNLOAD
           download_url = FILE_URL
-
-          # Convert pixeldrain viewer link /u/ID to direct API link /api/file/ID
           pixeldrain_match = re.search(r'pixeldrain\.(?:dev|com)/u/([a-zA-Z0-9_-]+)', download_url)
           if pixeldrain_match:
-              file_id = pixeldrain_match.group(1)
-              download_url = f"https://pixeldrain.com/api/file/{file_id}"
-              print(f"🔗 Converted Pixeldrain URL to direct API: {download_url}")
+              download_url = f"https://pixeldrain.com/api/file/{pixeldrain_match.group(1)}"
+              print(f"🔗 Converted Pixeldrain URL: {download_url}")
 
-          print("\n📥 Downloading file...")
-          # Try wget with resume and full redirect support first, then aria2c fallback
+          print("\n📥 Starting 16-connection multi-stream download via aria2c...")
           dl_cmd = (
-              f'wget -c --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
-              f'--content-disposition -O "downloaded_file" "{download_url}" || '
-              f'aria2c -x 16 -s 16 -k 2M --file-allocation=none '
-              f'--header="User-Agent: Mozilla/5.0" -o "downloaded_file" "{download_url}"'
+              f'aria2c '
+              f'-x 16 '
+              f'-s 16 '
+              f'-j 16 '
+              f'-k 2M '
+              f'--min-split-size=2M '
+              f'--stream-piece-selector=geom '
+              f'--max-connection-per-server=16 '
+              f'--file-allocation=none '
+              f'--summary-interval=30 '
+              f'--console-log-level=warn '
+              f'--header="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
+              f'-o "downloaded_payload" "{download_url}" || '
+              f'wget -c -q --show-progress --progress=dot:giga '
+              f'--user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
+              f'--content-disposition -O "downloaded_payload" "{download_url}"'
           )
           if os.system(dl_cmd) != 0:
-              raise Exception("Failed to download file.")
+              raise Exception("Failed to download payload.")
 
-          # Check if the downloaded file is a ZIP archive or a direct video
+          # 5. UNPACK OR RENAME
           os.makedirs("ready_to_upload", exist_ok=True)
-          is_zip = zipfile.is_zipfile("downloaded_file")
-
-          if is_zip:
-              print("📦 Valid ZIP detected. Extracting...")
-              with zipfile.ZipFile("downloaded_file", "r") as zip_ref:
+          if zipfile.is_zipfile("downloaded_payload"):
+              print("📦 Valid archive found. Extracting files...")
+              with zipfile.ZipFile("downloaded_payload", "r") as zip_ref:
                   zip_ref.extractall("ready_to_upload")
-              os.remove("downloaded_file")
+              os.remove("downloaded_payload")
           else:
-              print("🎬 Direct video or single file detected (not a zip). Preparing for direct upload...")
-              # Infer extension or fallback to .mkv
+              print("🎬 Direct file found. Moving to upload queue...")
               dest_name = "video.mkv"
-              if "." in FILE_URL.split("/")[-1]:
-                  cleaned_name = FILE_URL.split("/")[-1].split("?")[0]
-                  if cleaned_name:
-                      dest_name = cleaned_name
-              os.rename("downloaded_file", os.path.join("ready_to_upload", dest_name))
+              raw_name = FILE_URL.split("/")[-1].split("?")[0]
+              if "." in raw_name:
+                  dest_name = raw_name
+              os.rename("downloaded_payload", os.path.join("ready_to_upload", dest_name))
 
           video_exts = ('.mp4', '.mkv', '.avi', '.webm', '.ts')
           upload_files = []
@@ -218,54 +220,39 @@ jobs:
                   if file.lower().endswith(video_exts):
                       upload_files.append(os.path.join(root, file))
 
-          print(f"🎬 Found {len(upload_files)} media file(s) ready for upload.")
+          print(f"🎬 Found {len(upload_files)} media item(s).")
           if not upload_files:
-              print("⚠️ No video files found to upload.")
               sys.exit(0)
 
-          # 5. UPLOAD TO UDROP
-          print(f"\n🚀 Uploading files to uDrop...")
+          # 6. UPLOAD TO TARGET FOLDER
+          print(f"\n🚀 Uploading items...")
           ready_links = []
-
           for file_path in sorted(upload_files):
               filename = os.path.basename(file_path)
               print(f"Uploading: {filename}...")
 
               with open(file_path, "rb") as f:
-                  form_data = {
-                      "access_token": access_token,
-                      "account_id": account_id,
-                  }
-                  if final_folder_id:
-                      form_data["folder_id"] = final_folder_id
+                  form_data = {"access_token": access_token, "account_id": account_id}
+                  if target_folder_id:
+                      form_data["folder_id"] = target_folder_id
 
-                  files_payload = {
-                      "upload_file": (filename, f)
-                  }
-
-                  upload_res = requests.post(f"{API_BASE}/file/upload", data=form_data, files=files_payload)
+                  upload_res = requests.post(f"{API_BASE}/file/upload", data=form_data, files={"upload_file": (filename, f)})
                   try:
                       res_json = upload_res.json()
                   except Exception:
-                      print(f"  ❌ Invalid response: {upload_res.text[:200]}")
                       continue
 
                   if res_json.get("_status") == "success" and res_json.get("data"):
                       data_obj = res_json["data"]
                       file_meta = data_obj[0] if isinstance(data_obj, list) else data_obj
-
                       short_url = file_meta.get("short_url") or file_meta.get("shortUrl")
-                      if short_url:
-                          direct_link = f"https://www.udrop.com/file/{short_url}/{filename}"
-                      else:
-                          direct_link = file_meta.get("url") or file_meta.get("download_url")
-
-                      print(f"  -> Uploaded: {direct_link}")
-                      ready_links.append(direct_link)
+                      link = f"https://www.udrop.com/file/{short_url}/{filename}" if short_url else (file_meta.get("url") or "")
+                      print(f"  -> Uploaded: {link}")
+                      ready_links.append(link)
                   else:
-                      print(f"  ❌ Failed: {res_json.get('response', 'Upload error')}")
+                      print(f"  ❌ Upload failed: {res_json.get('response')}")
 
-          # 6. PRINT LINKS
+          # 7. SUMMARY
           print("\n" + "="*50)
           print("📋 DIRECT STREAM / DOWNLOAD LINKS:")
           print("="*50)
