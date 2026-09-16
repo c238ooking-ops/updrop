@@ -6,8 +6,19 @@ on:
       zip_url:
         description: 'Direct HTTPS URL to ZIP archive'
         required: true
-      folder_id:
-        description: 'uDrop Target Folder ID (Optional, leave blank for root)'
+      account_target:
+        description: 'Choose target uDrop Account'
+        required: true
+        default: 'acc1'
+        type: choice
+        options:
+          - acc1
+          - acc2
+          - acc3
+          - acc4
+          - acc5
+      folder_name:
+        description: 'Folder Name (Finds existing or creates automatically; leave blank for root)'
         required: false
         default: ''
 
@@ -19,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Free Up Disk Space
+      - name: Free Up Runner Disk Space
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
@@ -38,28 +49,61 @@ jobs:
           sudo apt-get install -y --no-install-recommends aria2 wget
           pip install requests
 
-      - name: Download, Extract, and Upload
+      - name: Download, Extract, Auto-Folder & Upload
         env:
           ZIP_URL: ${{ inputs.zip_url }}
-          FOLDER_ID: ${{ inputs.folder_id }}
-          KEY_1: ${{ secrets.UDROP_KEY1 }}
-          KEY_2: ${{ secrets.UDROP_KEY2 }}
+          TARGET_ACC: ${{ inputs.account_target }}
+          FOLDER_NAME: ${{ inputs.folder_name }}
+          ACCOUNTS_JSON: ${{ secrets.UDROP_ACCOUNTS_JSON }}
+          FALLBACK_KEY1: ${{ secrets.UDROP_KEY1 }}
+          FALLBACK_KEY2: ${{ secrets.UDROP_KEY2 }}
         run: |
           python - << 'EOF'
           import os
+          import sys
+          import json
           import zipfile
           import requests
 
-          ZIP_URL = os.environ.get("ZIP_URL")
-          KEY_1 = os.environ.get("KEY_1")
-          KEY_2 = os.environ.get("KEY_2")
-          FOLDER_ID = os.environ.get("FOLDER_ID", "").strip()
+          ZIP_URL = os.environ.get("ZIP_URL", "").strip()
+          TARGET_ACC = os.environ.get("TARGET_ACC", "acc1").strip()
+          FOLDER_NAME = os.environ.get("FOLDER_NAME", "").strip()
+          ACCOUNTS_RAW = os.environ.get("ACCOUNTS_JSON", "").strip()
 
           API_BASE = "https://www.udrop.com/api/v2"
 
-          # 1. AUTHENTICATE
-          print("🔑 Authenticating with uDrop API...")
-          auth_res = requests.post(f"{API_BASE}/authorize", data={"key1": KEY_1, "key2": KEY_2})
+          # 1. PARSE KEYS FROM JSON
+          key1 = None
+          key2 = None
+
+          if ACCOUNTS_RAW:
+              try:
+                  acc_data = json.loads(ACCOUNTS_RAW)
+                  # If structured as { "acc1": {"key1": "...", "key2": "..."}, ... }
+                  if TARGET_ACC in acc_data:
+                      key1 = acc_data[TARGET_ACC].get("key1")
+                      key2 = acc_data[TARGET_ACC].get("key2")
+                  # If structured as a list [ {"name": "acc1", "key1": "...", "key2": "..."}, ... ]
+                  elif isinstance(acc_data, list):
+                      for a in acc_data:
+                          if a.get("name") == TARGET_ACC or a.get("id") == TARGET_ACC:
+                              key1 = a.get("key1")
+                              key2 = a.get("key2")
+                              break
+              except Exception as e:
+                  print(f"⚠️ Failed to parse UDROP_ACCOUNTS_JSON: {e}")
+
+          if not key1 or not key2:
+              print(f"⚠️ Could not find credentials for '{TARGET_ACC}' in JSON, falling back to UDROP_KEY1/KEY2 secrets...")
+              key1 = os.environ.get("FALLBACK_KEY1")
+              key2 = os.environ.get("FALLBACK_KEY2")
+
+          if not key1 or not key2:
+              raise Exception(f"❌ Missing API credentials for {TARGET_ACC}!")
+
+          # 2. AUTHENTICATE
+          print(f"🔑 Authenticating target account [{TARGET_ACC}] with uDrop...")
+          auth_res = requests.post(f"{API_BASE}/authorize", data={"key1": key1, "key2": key2})
           auth_data = auth_res.json()
 
           if auth_data.get("_status") != "success":
@@ -67,19 +111,65 @@ jobs:
 
           access_token = auth_data["data"]["access_token"]
           account_id = auth_data["data"]["account_id"]
-          print(f"✅ Authenticated! Account ID: {account_id}")
+          print(f"✅ Authenticated as Account ID: {account_id}")
 
-          # 2. DOWNLOAD & EXTRACT
-          print("\n📥 Downloading ZIP archive...")
-          dl_cmd = f'aria2c -x 16 -s 16 -k 1M --file-allocation=none -o "archive.zip" "{ZIP_URL}" || wget -O "archive.zip" "{ZIP_URL}"'
+          # 3. AUTO FIND OR CREATE FOLDER
+          final_folder_id = ""
+          if FOLDER_NAME:
+              print(f"📁 Checking folder: '{FOLDER_NAME}'...")
+              list_res = requests.post(
+                  f"{API_BASE}/folder/list",
+                  data={"access_token": access_token, "account_id": account_id}
+              )
+              list_json = list_res.json()
+              existing_id = None
+
+              if list_json.get("_status") == "success" and list_json.get("data"):
+                  folders = list_json["data"]
+                  for f in folders:
+                      if str(f.get("folder_name", "")).strip().lower() == FOLDER_NAME.lower():
+                          existing_id = f.get("folder_id") or f.get("id")
+                          break
+
+              if existing_id:
+                  final_folder_id = str(existing_id)
+                  print(f"✅ Found existing folder! ID: {final_folder_id}")
+              else:
+                  print(f"📂 Folder '{FOLDER_NAME}' not found. Creating it now...")
+                  create_res = requests.post(
+                      f"{API_BASE}/folder/create",
+                      data={
+                          "access_token": access_token,
+                          "account_id": account_id,
+                          "folder_name": FOLDER_NAME,
+                          "parent_id": ""
+                      }
+                  )
+                  create_json = create_res.json()
+                  if create_json.get("_status") == "success" and create_json.get("data"):
+                      data_obj = create_json["data"]
+                      final_folder_id = str(data_obj.get("folder_id") or data_obj.get("id"))
+                      print(f"✅ Created folder successfully! ID: {final_folder_id}")
+                  else:
+                      print(f"⚠️ Failed to create folder ({create_json.get('response')}). Falling back to root directory.")
+                      final_folder_id = ""
+
+          # 4. DOWNLOAD & EXTRACT ZIP
+          print("\n📥 Downloading ZIP archive via aria2c...")
+          dl_cmd = (
+              f'aria2c -x 16 -s 16 -k 2M --min-split-size=2M --stream-piece-selector=geom '
+              f'--max-connection-per-server=16 --file-allocation=none --summary-interval=10 '
+              f'-o "archive.zip" "{ZIP_URL}" || wget -O "archive.zip" "{ZIP_URL}"'
+          )
           if os.system(dl_cmd) != 0:
               raise Exception("Failed to download ZIP file.")
 
-          print("📦 Extracting archive...")
+          print("📦 Extracting videos...")
           os.makedirs("extracted_videos", exist_ok=True)
           with zipfile.ZipFile("archive.zip", "r") as zip_ref:
               zip_ref.extractall("extracted_videos")
 
+          print("🧹 Deleting original ZIP to conserve disk space...")
           os.remove("archive.zip")
 
           video_exts = ('.mp4', '.mkv', '.avi', '.webm', '.ts')
@@ -92,10 +182,10 @@ jobs:
           print(f"🎬 Found {len(video_files)} video file(s).")
           if not video_files:
               print("⚠️ No video files located in archive.")
-              exit(0)
+              sys.exit(0)
 
-          # 3. UPLOAD TO UDROP
-          print("\n🚀 Uploading files to uDrop...")
+          # 5. UPLOAD EACH FILE TO UDROP
+          print(f"\n🚀 Uploading extracted files to {TARGET_ACC}...")
           ready_links = []
 
           for file_path in sorted(video_files):
@@ -107,8 +197,8 @@ jobs:
                       "access_token": access_token,
                       "account_id": account_id,
                   }
-                  if FOLDER_ID:
-                      form_data["folder_id"] = FOLDER_ID
+                  if final_folder_id:
+                      form_data["folder_id"] = final_folder_id
 
                   files_payload = {
                       "upload_file": (filename, f)
@@ -124,7 +214,7 @@ jobs:
                   if res_json.get("_status") == "success" and res_json.get("data"):
                       data_obj = res_json["data"]
                       file_meta = data_obj[0] if isinstance(data_obj, list) else data_obj
-                      
+
                       short_url = file_meta.get("short_url") or file_meta.get("shortUrl")
                       if short_url:
                           direct_link = f"https://www.udrop.com/file/{short_url}/{filename}"
@@ -136,7 +226,7 @@ jobs:
                   else:
                       print(f"  ❌ Failed: {res_json.get('response', 'Upload error')}")
 
-          # 4. SUMMARY
+          # 6. SUMMARY
           print("\n" + "="*50)
           print("📋 DIRECT STREAM / DOWNLOAD LINKS:")
           print("="*50)
