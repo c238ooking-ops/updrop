@@ -105,7 +105,7 @@ jobs:
           account_id = auth_data["data"]["account_id"]
           print(f"✅ Authenticated! Account ID: {account_id}")
 
-          # 3. RECURSIVE FOLDER NAVIGATION (Scoped & Paginated)
+          # 3. ROBUST GLOBAL FOLDER NAVIGATION VIA DICTIONARY LOOKUP
           target_folder_id = ""
           if FOLDER_PATH:
               if FOLDER_PATH.strip().isdigit():
@@ -118,55 +118,46 @@ jobs:
                   current_parent_id = None
 
                   for segment in segments:
-                      # Query listing scoped to current folder with full pagination
-                      list_payload = {
+                      # 1. Fetch entire account folder mapping with wide limit
+                      listing_res = requests.post(f"{API_BASE}/folder/listing", data={
                           "access_token": access_token,
                           "account_id": account_id,
-                          "per_page": 200
-                      }
-                      if current_parent_id:
-                          list_payload["folder_id"] = str(current_parent_id)
-                          list_payload["parentId"] = str(current_parent_id)
-
-                      listing_res = requests.post(f"{API_BASE}/folder/listing", data=list_payload).json()
+                          "per_page": 500
+                      }).json()
 
                       folders_list = []
                       if listing_res.get("_status") == "success" and listing_res.get("data"):
-                          data_node = listing_res["data"]
-                          if isinstance(data_node, dict):
-                              folders_list = data_node.get("folders", [])
-                          elif isinstance(data_node, list):
-                              folders_list = data_node
+                          d = listing_res["data"]
+                          folders_list = d.get("folders", []) if isinstance(d, dict) else d
 
                       found_id = None
-                      # Match folder by name (case-insensitive)
+
+                      # Pass 1: Try exact name + parent ID match
                       for f in folders_list:
                           if f.get("status") == "trash":
                               continue
-
-                          f_name = str(f.get("folderName", "")).strip()
-                          if f_name.lower() == segment.lower():
-                              found_id = str(f.get("id"))
-                              print(f"  📁 Found existing folder: '{f_name}' (ID: {found_id})")
-                              break
-
-                      # Fallback global search if not found in current scoped view
-                      if not found_id and current_parent_id:
-                          global_res = requests.post(f"{API_BASE}/folder/listing", data={
-                              "access_token": access_token,
-                              "account_id": account_id,
-                              "per_page": 200
-                          }).json()
-                          all_folders = global_res.get("data", {}).get("folders", [])
-                          for f in all_folders:
-                              if f.get("status") != "trash" and str(f.get("folderName", "")).strip().lower() == segment.lower():
+                          name = str(f.get("folderName", "")).strip()
+                          parent_val = f.get("parentId")
+                          if name.lower() == segment.lower():
+                              if current_parent_id is None or str(parent_val) == str(current_parent_id):
                                   found_id = str(f.get("id"))
-                                  print(f"  📁 Found folder in account: '{f.get('folderName')}' (ID: {found_id})")
+                                  print(f"  📁 Found folder (hierarchy match): '{name}' (ID: {found_id})")
                                   break
 
-                      # Create folder if it truly doesn't exist
+                      # Pass 2: Fallback to global match by name anywhere in account
                       if not found_id:
-                          print(f"  📂 Folder '{segment}' not found. Creating under ID {current_parent_id or 'Root'}...")
+                          for f in folders_list:
+                              if f.get("status") == "trash":
+                                  continue
+                              name = str(f.get("folderName", "")).strip()
+                              if name.lower() == segment.lower():
+                                  found_id = str(f.get("id"))
+                                  print(f"  📁 Found existing folder (name match): '{name}' (ID: {found_id})")
+                                  break
+
+                      # Pass 3: If still missing, create the folder
+                      if not found_id:
+                          print(f"  📂 Folder '{segment}' does not exist. Creating under ID {current_parent_id or 'Root'}...")
                           create_payload = {
                               "access_token": access_token,
                               "account_id": account_id,
@@ -175,7 +166,7 @@ jobs:
                           }
                           if current_parent_id:
                               create_payload["parentId"] = str(current_parent_id)
-                              create_payload["folder_id"] = str(current_parent_id)
+                              create_payload["parent_id"] = str(current_parent_id)
 
                           create_res = requests.post(f"{API_BASE}/folder/create", data=create_payload).json()
                           if create_res.get("_status") == "success" and create_res.get("data"):
@@ -183,7 +174,7 @@ jobs:
                               found_id = str(data_obj.get("folder_id") or data_obj.get("id"))
                               print(f"  ✅ Created '{segment}' (ID: {found_id})")
                           else:
-                              print(f"  ⚠️ Failed creating folder '{segment}'. Falling back to current level.")
+                              print(f"  ⚠️ Failed to create folder '{segment}'.")
                               break
 
                       current_parent_id = found_id
