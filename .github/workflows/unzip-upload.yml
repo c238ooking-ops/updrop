@@ -3,20 +3,20 @@ name: Unzip & Upload to uDrop
 on:
   workflow_dispatch:
     inputs:
-      zip_url:
-        description: 'Direct HTTPS URL to ZIP archive'
+      file_url:
+        description: 'Direct HTTPS URL (Pixeldrain, R2, direct ZIP, etc.)'
         required: true
       account_target:
         description: 'Choose target uDrop Account'
         required: true
-        default: 'acc1'
+        default: 'Account 2 (Secondary)'
         type: choice
         options:
-          - acc1
-          - acc2
-          - acc3
-          - acc4
-          - acc5
+          - 'Account 1 (Primary)'
+          - 'Account 2 (Secondary)'
+          - 'Account 3'
+          - 'Account 4'
+          - 'Account 5'
       folder_name:
         description: 'Folder Name (Finds existing or creates automatically; leave blank for root)'
         required: false
@@ -51,7 +51,7 @@ jobs:
 
       - name: Download, Extract, Auto-Folder & Upload
         env:
-          ZIP_URL: ${{ inputs.zip_url }}
+          FILE_URL: ${{ inputs.file_url }}
           TARGET_ACC: ${{ inputs.account_target }}
           FOLDER_NAME: ${{ inputs.folder_name }}
           ACCOUNTS_JSON: ${{ secrets.UDROP_ACCOUNTS_JSON }}
@@ -62,39 +62,57 @@ jobs:
           import os
           import sys
           import json
+          import re
           import zipfile
           import requests
 
-          ZIP_URL = os.environ.get("ZIP_URL", "").strip()
-          TARGET_ACC = os.environ.get("TARGET_ACC", "acc1").strip()
+          FILE_URL = os.environ.get("FILE_URL", "").strip()
+          TARGET_ACC = os.environ.get("TARGET_ACC", "Account 1 (Primary)").strip()
           FOLDER_NAME = os.environ.get("FOLDER_NAME", "").strip()
           ACCOUNTS_RAW = os.environ.get("ACCOUNTS_JSON", "").strip()
 
           API_BASE = "https://www.udrop.com/api/v2"
 
-          # 1. PARSE KEYS FROM JSON
+          # 1. PARSE KEYS FROM JSON BY NAME OR INDEX
           key1 = None
           key2 = None
+
+          # Map dropdown selection to array index
+          acc_index_map = {
+              "account 1 (primary)": 0,
+              "account 2 (secondary)": 1,
+              "account 3": 2,
+              "account 4": 3,
+              "account 5": 4
+          }
+          target_idx = acc_index_map.get(TARGET_ACC.lower(), 0)
 
           if ACCOUNTS_RAW:
               try:
                   acc_data = json.loads(ACCOUNTS_RAW)
-                  # If structured as { "acc1": {"key1": "...", "key2": "..."}, ... }
-                  if TARGET_ACC in acc_data:
-                      key1 = acc_data[TARGET_ACC].get("key1")
-                      key2 = acc_data[TARGET_ACC].get("key2")
-                  # If structured as a list [ {"name": "acc1", "key1": "...", "key2": "..."}, ... ]
-                  elif isinstance(acc_data, list):
-                      for a in acc_data:
-                          if a.get("name") == TARGET_ACC or a.get("id") == TARGET_ACC:
-                              key1 = a.get("key1")
-                              key2 = a.get("key2")
-                              break
+                  if isinstance(acc_data, list):
+                      # Try matching by index first
+                      if target_idx < len(acc_data):
+                          key1 = acc_data[target_idx].get("key1")
+                          key2 = acc_data[target_idx].get("key2")
+                          acc_name = acc_data[target_idx].get("name", f"Index {target_idx}")
+                          print(f"🎯 Selected account by position [{target_idx}]: '{acc_name}'")
+                      
+                      # If not found by index, fuzzy match by name
+                      if not key1:
+                          for a in acc_data:
+                              name = str(a.get("name", "")).lower()
+                              if ("second" in TARGET_ACC.lower() and "second" in name) or \
+                                 ("primary" in TARGET_ACC.lower() and "primary" in name):
+                                  key1 = a.get("key1")
+                                  key2 = a.get("key2")
+                                  print(f"🎯 Matched account by name: '{a.get('name')}'")
+                                  break
               except Exception as e:
                   print(f"⚠️ Failed to parse UDROP_ACCOUNTS_JSON: {e}")
 
           if not key1 or not key2:
-              print(f"⚠️ Could not find credentials for '{TARGET_ACC}' in JSON, falling back to UDROP_KEY1/KEY2 secrets...")
+              print(f"⚠️ Falling back to default UDROP_KEY1/KEY2 secrets...")
               key1 = os.environ.get("FALLBACK_KEY1")
               key2 = os.environ.get("FALLBACK_KEY2")
 
@@ -102,7 +120,7 @@ jobs:
               raise Exception(f"❌ Missing API credentials for {TARGET_ACC}!")
 
           # 2. AUTHENTICATE
-          print(f"🔑 Authenticating target account [{TARGET_ACC}] with uDrop...")
+          print(f"🔑 Authenticating with uDrop...")
           auth_res = requests.post(f"{API_BASE}/authorize", data={"key1": key1, "key2": key2})
           auth_data = auth_res.json()
 
@@ -125,8 +143,7 @@ jobs:
               existing_id = None
 
               if list_json.get("_status") == "success" and list_json.get("data"):
-                  folders = list_json["data"]
-                  for f in folders:
+                  for f in list_json["data"]:
                       if str(f.get("folder_name", "")).strip().lower() == FOLDER_NAME.lower():
                           existing_id = f.get("folder_id") or f.get("id")
                           break
@@ -135,7 +152,7 @@ jobs:
                   final_folder_id = str(existing_id)
                   print(f"✅ Found existing folder! ID: {final_folder_id}")
               else:
-                  print(f"📂 Folder '{FOLDER_NAME}' not found. Creating it now...")
+                  print(f"📂 Creating folder '{FOLDER_NAME}'...")
                   create_res = requests.post(
                       f"{API_BASE}/folder/create",
                       data={
@@ -151,44 +168,66 @@ jobs:
                       final_folder_id = str(data_obj.get("folder_id") or data_obj.get("id"))
                       print(f"✅ Created folder successfully! ID: {final_folder_id}")
                   else:
-                      print(f"⚠️ Failed to create folder ({create_json.get('response')}). Falling back to root directory.")
+                      print(f"⚠️ Failed to create folder. Using root folder.")
                       final_folder_id = ""
 
-          # 4. DOWNLOAD & EXTRACT ZIP
-          print("\n📥 Downloading ZIP archive via aria2c...")
+          # 4. RESOLVE PIXELDRAIN & DIRECT DOWNLOAD LINKS
+          download_url = FILE_URL
+
+          # Convert pixeldrain viewer link /u/ID to direct API link /api/file/ID
+          pixeldrain_match = re.search(r'pixeldrain\.(?:dev|com)/u/([a-zA-Z0-9_-]+)', download_url)
+          if pixeldrain_match:
+              file_id = pixeldrain_match.group(1)
+              download_url = f"https://pixeldrain.com/api/file/{file_id}"
+              print(f"🔗 Converted Pixeldrain URL to direct API: {download_url}")
+
+          print("\n📥 Downloading file...")
+          # Try wget with resume and full redirect support first, then aria2c fallback
           dl_cmd = (
-              f'aria2c -x 16 -s 16 -k 2M --min-split-size=2M --stream-piece-selector=geom '
-              f'--max-connection-per-server=16 --file-allocation=none --summary-interval=10 '
-              f'-o "archive.zip" "{ZIP_URL}" || wget -O "archive.zip" "{ZIP_URL}"'
+              f'wget -c --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
+              f'--content-disposition -O "downloaded_file" "{download_url}" || '
+              f'aria2c -x 16 -s 16 -k 2M --file-allocation=none '
+              f'--header="User-Agent: Mozilla/5.0" -o "downloaded_file" "{download_url}"'
           )
           if os.system(dl_cmd) != 0:
-              raise Exception("Failed to download ZIP file.")
+              raise Exception("Failed to download file.")
 
-          print("📦 Extracting videos...")
-          os.makedirs("extracted_videos", exist_ok=True)
-          with zipfile.ZipFile("archive.zip", "r") as zip_ref:
-              zip_ref.extractall("extracted_videos")
+          # Check if the downloaded file is a ZIP archive or a direct video
+          os.makedirs("ready_to_upload", exist_ok=True)
+          is_zip = zipfile.is_zipfile("downloaded_file")
 
-          print("🧹 Deleting original ZIP to conserve disk space...")
-          os.remove("archive.zip")
+          if is_zip:
+              print("📦 Valid ZIP detected. Extracting...")
+              with zipfile.ZipFile("downloaded_file", "r") as zip_ref:
+                  zip_ref.extractall("ready_to_upload")
+              os.remove("downloaded_file")
+          else:
+              print("🎬 Direct video or single file detected (not a zip). Preparing for direct upload...")
+              # Infer extension or fallback to .mkv
+              dest_name = "video.mkv"
+              if "." in FILE_URL.split("/")[-1]:
+                  cleaned_name = FILE_URL.split("/")[-1].split("?")[0]
+                  if cleaned_name:
+                      dest_name = cleaned_name
+              os.rename("downloaded_file", os.path.join("ready_to_upload", dest_name))
 
           video_exts = ('.mp4', '.mkv', '.avi', '.webm', '.ts')
-          video_files = []
-          for root, _, files in os.walk("extracted_videos"):
+          upload_files = []
+          for root, _, files in os.walk("ready_to_upload"):
               for file in files:
                   if file.lower().endswith(video_exts):
-                      video_files.append(os.path.join(root, file))
+                      upload_files.append(os.path.join(root, file))
 
-          print(f"🎬 Found {len(video_files)} video file(s).")
-          if not video_files:
-              print("⚠️ No video files located in archive.")
+          print(f"🎬 Found {len(upload_files)} media file(s) ready for upload.")
+          if not upload_files:
+              print("⚠️ No video files found to upload.")
               sys.exit(0)
 
-          # 5. UPLOAD EACH FILE TO UDROP
-          print(f"\n🚀 Uploading extracted files to {TARGET_ACC}...")
+          # 5. UPLOAD TO UDROP
+          print(f"\n🚀 Uploading files to uDrop...")
           ready_links = []
 
-          for file_path in sorted(video_files):
+          for file_path in sorted(upload_files):
               filename = os.path.basename(file_path)
               print(f"Uploading: {filename}...")
 
@@ -208,7 +247,7 @@ jobs:
                   try:
                       res_json = upload_res.json()
                   except Exception:
-                      print(f"  ❌ Invalid JSON returned: {upload_res.text[:200]}")
+                      print(f"  ❌ Invalid response: {upload_res.text[:200]}")
                       continue
 
                   if res_json.get("_status") == "success" and res_json.get("data"):
@@ -226,7 +265,7 @@ jobs:
                   else:
                       print(f"  ❌ Failed: {res_json.get('response', 'Upload error')}")
 
-          # 6. SUMMARY
+          # 6. PRINT LINKS
           print("\n" + "="*50)
           print("📋 DIRECT STREAM / DOWNLOAD LINKS:")
           print("="*50)
