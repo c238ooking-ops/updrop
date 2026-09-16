@@ -136,29 +136,34 @@ jobs:
                           if f.get("status") == "trash":
                               continue
 
+                          # Match folder name (case-insensitive)
                           name_match = str(f.get("folderName", "")).strip().lower() == segment.lower()
-                          parent_val = f.get("parentId")
+                          
+                          # Robust parent ID normalization (int/str/null/0)
+                          raw_parent = f.get("parentId")
+                          parent_str = "" if (raw_parent is None or str(raw_parent).strip() in ("", "0", "null")) else str(raw_parent).strip()
+                          curr_parent_str = "" if (current_parent_id is None or str(current_parent_id).strip() in ("", "0", "null")) else str(current_parent_id).strip()
 
-                          parent_match = False
-                          if current_parent_id is None:
-                              parent_match = (parent_val is None or str(parent_val).strip() in ("", "0"))
-                          else:
-                              parent_match = (str(parent_val) == str(current_parent_id))
+                          parent_match = (parent_str == curr_parent_str)
 
                           if name_match and parent_match:
                               found_id = str(f.get("id"))
-                              print(f"  📁 Found existing folder: '{f.get('folderName')}' (ID: {found_id})")
+                              print(f"  📁 Found existing folder: '{f.get('folderName')}' (ID: {found_id}, Parent: {parent_str or 'Root'})")
                               break
 
                       if not found_id:
-                          print(f"  📂 Creating subfolder '{segment}'...")
+                          print(f"  📂 Creating subfolder '{segment}' under Parent: {current_parent_id or 'Root'}...")
                           create_payload = {
                               "access_token": access_token,
                               "account_id": account_id,
-                              "folder_name": segment
+                              "folder_name": segment,
+                              "folderName": segment
                           }
                           if current_parent_id:
+                              # Send all common YetiShare/uDrop parent parameter variants
+                              create_payload["parentId"] = str(current_parent_id)
                               create_payload["parent_id"] = str(current_parent_id)
+                              create_payload["parent_folder_id"] = str(current_parent_id)
 
                           create_res = requests.post(f"{API_BASE}/folder/create", data=create_payload).json()
                           if create_res.get("_status") == "success" and create_res.get("data"):
