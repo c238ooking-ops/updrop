@@ -149,7 +149,8 @@ jobs:
                           create_payload = {
                               "access_token": access_token,
                               "account_id": account_id,
-                              "folder_name": segment
+                              "folder_name": segment,
+                              "is_public": 1  # 1 = Unlisted/Accessible via link, 2 = Fully Public
                           }
                           if current_parent_id:
                               create_payload["parent_id"] = str(current_parent_id)
