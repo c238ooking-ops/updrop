@@ -35,9 +35,9 @@ jobs:
       - name: Install System Tools & Dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends aria2 wget
-          pip install --no-cache-dir requests requests-toolbelt
-
+          sudo apt-get install -y --no-install-recommends aria2 wget curl
+          pip install --no-cache-dir requests requests-toolbelt yt-dlp
+          
       - name: Download, Extract, Resolve Path & Upload
         env:
           FILE_URL: ${{ inputs.file_url }}
@@ -170,34 +170,67 @@ jobs:
 
           print(f"🎯 Final Target Upload Folder ID: {target_folder_id or 'Root'}")
 
-          # 4. RESOLVE LINK & 16-CONNECTION ACCELERATED DOWNLOAD
+          # 4. RESOLVE DYNAMIC GATED LINKS & MULTI-ENGINE DOWNLOAD
           download_url = FILE_URL
+
+          # Pixeldrain direct API mapping
           pixeldrain_match = re.search(r'pixeldrain\.(?:dev|com)/u/([a-zA-Z0-9_-]+)', download_url)
           if pixeldrain_match:
               download_url = f"https://pixeldrain.com/api/file/{pixeldrain_match.group(1)}"
               print(f"🔗 Converted Pixeldrain URL: {download_url}")
 
-          print("\n📥 Starting 16-connection multi-stream download via aria2c...")
+          # Resolve redirect gates (e.g., skydrop download.php)
+          if "download.php" in download_url or "skydrop" in download_url:
+              print("🔍 Resolving dynamic download redirect...")
+              try:
+                  head_res = requests.head(
+                      download_url,
+                      allow_redirects=True,
+                      timeout=20,
+                      headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                  )
+                  if head_res.url and head_res.url != download_url:
+                      download_url = head_res.url
+                      print(f"🔗 Resolved dynamic link to: {download_url}")
+              except Exception as e:
+                  print(f"⚠️ Dynamic link resolution warning: {e}")
+
+          print("\n📥 Starting accelerated multi-engine download...")
+          
+          # Command 1: aria2c with redirect & cookie support
           dl_cmd = (
               f'aria2c '
-              f'-x 16 '
-              f'-s 16 '
-              f'-j 16 '
-              f'-k 2M '
+              f'-x 16 -s 16 -j 16 -k 2M '
               f'--min-split-size=2M '
-              f'--stream-piece-selector=geom '
               f'--max-connection-per-server=16 '
               f'--file-allocation=none '
               f'--summary-interval=30 '
               f'--console-log-level=warn '
+              f'--check-certificate=false '
               f'--header="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
+              f'--header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" '
               f'-o "downloaded_payload" "{download_url}" || '
-              f'wget -c -q --show-progress --progress=dot:giga '
-              f'--user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
-              f'--content-disposition -O "downloaded_payload" "{download_url}"'
+              # Command 2: curl with auto-redirects and remote filename support
+              f'curl -L -k -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
+              f'-o "downloaded_payload" "{download_url}" || '
+              # Command 3: yt-dlp generic extractor for gated media/archives
+              f'yt-dlp --no-check-certificate -o "downloaded_payload" "{download_url}"'
           )
-          if os.system(dl_cmd) != 0:
-              raise Exception("Failed to download payload.")
+
+          if os.system(dl_cmd) != 0 or not os.path.exists("downloaded_payload"):
+              raise Exception("❌ All download attempts failed for the provided URL.")
+
+          # 5 GB Host Limit Guard
+          MAX_UDROP_BYTES = 5 * 1024 * 1024 * 1024  # 5.0 GB
+          downloaded_size = os.path.getsize("downloaded_payload")
+          downloaded_size_gb = round(downloaded_size / (1024**3), 2)
+          print(f"📦 Payload size: {downloaded_size_gb} GB")
+
+          if not zipfile.is_zipfile("downloaded_payload") and downloaded_size > MAX_UDROP_BYTES:
+              raise Exception(
+                  f"❌ File size ({downloaded_size_gb} GB) exceeds uDrop's 5.0 GB upload limit. "
+                  "Please provide individual episode files or an archive of split parts."
+              )
 
           # 5. UNPACK OR RENAME
           os.makedirs("ready_to_upload", exist_ok=True)
