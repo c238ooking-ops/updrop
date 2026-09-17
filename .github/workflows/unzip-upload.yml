@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends aria2 wget
-          pip install --no-cache-dir requests
+          pip install --no-cache-dir requests requests-toolbelt
 
       - name: Download, Extract, Resolve Path & Upload
         env:
@@ -225,33 +225,79 @@ jobs:
           if not upload_files:
               sys.exit(0)
 
-          # 6. UPLOAD TO TARGET FOLDER
+          # 6. STREAMED UPLOAD WITH TIMEOUT & RETRY HANDLING
+          import time
+          from requests_toolbelt.multipart.encoder import MultipartEncoder
+
           print(f"\n🚀 Uploading items...")
           ready_links = []
+
+          session = requests.Session()
+          adapter = requests.adapters.HTTPAdapter(max_retries=3)
+          session.mount("https://", adapter)
+
           for file_path in sorted(upload_files):
               filename = os.path.basename(file_path)
-              print(f"Uploading: {filename}...")
+              filesize_mb = round(os.path.getsize(file_path) / (1024 * 1024), 2)
+              print(f"\nUploading: {filename} ({filesize_mb} MB)...")
 
-              with open(file_path, "rb") as f:
-                  form_data = {"access_token": access_token, "account_id": account_id}
-                  if target_folder_id:
-                      form_data["folder_id"] = str(target_folder_id)
+              fields = {
+                  "access_token": access_token,
+                  "account_id": str(account_id),
+              }
+              if target_folder_id:
+                  fields["folder_id"] = str(target_folder_id)
 
-                  upload_res = requests.post(f"{API_BASE}/file/upload", data=form_data, files={"upload_file": (filename, f)})
+              # Retry loop (up to 3 attempts per file)
+              max_attempts = 3
+              success = False
+
+              for attempt in range(1, max_attempts + 1):
                   try:
-                      res_json = upload_res.json()
-                  except Exception:
-                      continue
+                      with open(file_path, "rb") as f:
+                          fields_copy = fields.copy()
+                          fields_copy["upload_file"] = (filename, f, "application/octet-stream")
+                          m = MultipartEncoder(fields=fields_copy)
 
-                  if res_json.get("_status") == "success" and res_json.get("data"):
-                      data_obj = res_json["data"]
-                      file_meta = data_obj[0] if isinstance(data_obj, list) else data_obj
-                      short_url = file_meta.get("short_url") or file_meta.get("shortUrl")
-                      link = f"https://www.udrop.com/file/{short_url}/{filename}" if short_url else (file_meta.get("url") or "")
-                      print(f"  -> Uploaded: {link}")
-                      ready_links.append(link)
-                  else:
-                      print(f"  ❌ Upload failed: {res_json.get('response')}")
+                          headers = {
+                              "Content-Type": m.content_type,
+                              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                          }
+
+                          # Extended 1800s (30 min) timeout to avoid dropouts
+                          upload_res = session.post(
+                              f"{API_BASE}/file/upload",
+                              data=m,
+                              headers=headers,
+                              timeout=(30, 1800)
+                          )
+
+                          try:
+                              res_json = upload_res.json()
+                          except Exception:
+                              print(f"  ⚠️ Non-JSON response ({upload_res.status_code}). Retrying...")
+                              time.sleep(5)
+                              continue
+
+                          if res_json.get("_status") == "success" and res_json.get("data"):
+                              data_obj = res_json["data"]
+                              file_meta = data_obj[0] if isinstance(data_obj, list) else data_obj
+                              short_url = file_meta.get("short_url") or file_meta.get("shortUrl")
+                              link = f"https://www.udrop.com/file/{short_url}/{filename}" if short_url else (file_meta.get("url") or "")
+                              print(f"  -> Uploaded: {link}")
+                              ready_links.append(link)
+                              success = True
+                              break
+                          else:
+                              print(f"  ❌ Attempt {attempt} failed: {res_json.get('response')}")
+                              time.sleep(5)
+
+                  except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as err:
+                      print(f"  ⚠️ Connection dropped on attempt {attempt}/{max_attempts}: {err}")
+                      time.sleep(10)
+
+              if not success:
+                  print(f"  ❌ Skipping {filename} after {max_attempts} failed attempts.")
 
           # 7. SUMMARY
           print("\n" + "="*50)
