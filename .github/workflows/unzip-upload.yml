@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       file_url:
-        description: 'Direct HTTPS URL (Pixeldrain, R2, direct ZIP, etc.)'
+        description: 'Direct HTTPS URL (Skydrop, Pixeldrain, R2, direct ZIP, etc.)'
         required: true
       account_number:
         description: 'Account Number in JSON list (e.g. 1, 2, 3, 10, 11)'
@@ -31,13 +31,28 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cache Playwright Browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-chromium-
 
       - name: Install System Tools & Dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends aria2 wget curl
-          pip install --no-cache-dir requests requests-toolbelt yt-dlp
-          
+          pip install --no-cache-dir requests requests-toolbelt yt-dlp playwright
+
+      - name: Install Playwright Browser (Conditional)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: |
+          playwright install chromium --with-deps
+
       - name: Download, Extract, Resolve Path & Upload
         env:
           FILE_URL: ${{ inputs.file_url }}
@@ -53,7 +68,9 @@ jobs:
           import json
           import re
           import zipfile
+          import asyncio
           import requests
+          from playwright.async_api import async_playwright
 
           FILE_URL = os.environ.get("FILE_URL", "").strip()
           ACCOUNT_RAW_NUM = os.environ.get("ACCOUNT_NUM", "1").strip()
@@ -65,7 +82,6 @@ jobs:
           # 1. PARSE KEYS DYNAMICALLY BY ACCOUNT NUMBER
           key1, key2 = None, None
 
-          # Convert human-readable 1-based number (1, 2, 10...) to 0-based index
           try:
               target_idx = max(0, int(ACCOUNT_RAW_NUM) - 1)
           except ValueError:
@@ -115,10 +131,9 @@ jobs:
                   segments = [s.strip() for s in re.split(r'[\\/]+', FOLDER_PATH) if s.strip()]
                   print(f"📂 Resolving nested path: {' ➔ '.join(segments)}")
 
-                  current_parent_id = ""  # Blank for root
+                  current_parent_id = ""
 
                   for segment in segments:
-                      # Query listing with the exact documentation parameter: parent_folder_id
                       list_payload = {
                           "access_token": access_token,
                           "account_id": account_id
@@ -143,14 +158,13 @@ jobs:
                               print(f"  📁 Found folder inside {current_parent_id or 'Root'}: '{f_name}' (ID: {found_id})")
                               break
 
-                      # Create folder using the exact documentation parameter: parent_id
                       if not found_id:
                           print(f"  📂 Folder '{segment}' not found inside {current_parent_id or 'Root'}. Creating it...")
                           create_payload = {
                               "access_token": access_token,
                               "account_id": account_id,
                               "folder_name": segment,
-                              "is_public": 1  # 1 = Unlisted/Accessible via link, 2 = Fully Public
+                              "is_public": 1
                           }
                           if current_parent_id:
                               create_payload["parent_id"] = str(current_parent_id)
@@ -173,52 +187,64 @@ jobs:
           # 4. RESOLVE DYNAMIC GATED LINKS & MULTI-ENGINE DOWNLOAD
           download_url = FILE_URL
 
+          # Async function to handle Skydrop via Playwright browser execution
+          async def download_skydrop(url):
+              print("🌐 Skydrop link detected. Launching automated headless browser...")
+              async with async_playwright() as p:
+                  browser = await p.chromium.launch(headless=True)
+                  context = await browser.new_context(accept_downloads=True)
+                  page = await context.new_page()
+                  
+                  print("📥 Navigating to Skydrop landing page...")
+                  await page.goto(url, wait_until="networkidle")
+                  
+                  try:
+                      print("⏳ Locating 'Download Video' button...")
+                      download_btn = page.locator("a:has-text('Download Video'), button:has-text('Download Video')")
+                      await download_btn.wait_for(state="visible", timeout=20000)
+                      
+                      print("🔘 Clicking download and capturing stream...")
+                      async with page.expect_download(timeout=60000) as download_info:
+                          await download_btn.first.click()
+                      
+                      download = await download_info.value
+                      await download.save_as("downloaded_payload")
+                      print(f"🎉 Successfully downloaded via Playwright: {download.suggested_filename}")
+                  except Exception as e:
+                      raise Exception(f"❌ Playwright download failed for Skydrop: {e}")
+                  finally:
+                      await browser.close()
+
           # Pixeldrain direct API mapping
           pixeldrain_match = re.search(r'pixeldrain\.(?:dev|com)/u/([a-zA-Z0-9_-]+)', download_url)
           if pixeldrain_match:
               download_url = f"https://pixeldrain.com/api/file/{pixeldrain_match.group(1)}"
               print(f"🔗 Converted Pixeldrain URL: {download_url}")
 
-          # Resolve redirect gates (e.g., skydrop download.php)
-          if "download.php" in download_url or "skydrop" in download_url:
-              print("🔍 Resolving dynamic download redirect...")
-              try:
-                  head_res = requests.head(
-                      download_url,
-                      allow_redirects=True,
-                      timeout=20,
-                      headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                  )
-                  if head_res.url and head_res.url != download_url:
-                      download_url = head_res.url
-                      print(f"🔗 Resolved dynamic link to: {download_url}")
-              except Exception as e:
-                  print(f"⚠️ Dynamic link resolution warning: {e}")
+          # Execution branching for Skydrop vs Standard Engines
+          if "skydrop" in download_url:
+              asyncio.run(download_skydrop(download_url))
+          else:
+              print("\n📥 Starting accelerated standard multi-engine download...")
+              dl_cmd = (
+                  f'aria2c '
+                  f'-x 16 -s 16 -j 16 -k 2M '
+                  f'--min-split-size=2M '
+                  f'--max-connection-per-server=16 '
+                  f'--file-allocation=none '
+                  f'--summary-interval=30 '
+                  f'--console-log-level=warn '
+                  f'--check-certificate=false '
+                  f'--header="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
+                  f'--header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" '
+                  f'-o "downloaded_payload" "{download_url}" || '
+                  f'curl -L -k -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
+                  f'-o "downloaded_payload" "{download_url}" || '
+                  f'yt-dlp --no-check-certificate -o "downloaded_payload" "{download_url}"'
+              )
 
-          print("\n📥 Starting accelerated multi-engine download...")
-          
-          # Command 1: aria2c with redirect & cookie support
-          dl_cmd = (
-              f'aria2c '
-              f'-x 16 -s 16 -j 16 -k 2M '
-              f'--min-split-size=2M '
-              f'--max-connection-per-server=16 '
-              f'--file-allocation=none '
-              f'--summary-interval=30 '
-              f'--console-log-level=warn '
-              f'--check-certificate=false '
-              f'--header="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
-              f'--header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" '
-              f'-o "downloaded_payload" "{download_url}" || '
-              # Command 2: curl with auto-redirects and remote filename support
-              f'curl -L -k -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
-              f'-o "downloaded_payload" "{download_url}" || '
-              # Command 3: yt-dlp generic extractor for gated media/archives
-              f'yt-dlp --no-check-certificate -o "downloaded_payload" "{download_url}"'
-          )
-
-          if os.system(dl_cmd) != 0 or not os.path.exists("downloaded_payload"):
-              raise Exception("❌ All download attempts failed for the provided URL.")
+              if os.system(dl_cmd) != 0 or not os.path.exists("downloaded_payload"):
+                  raise Exception("❌ All download attempts failed for the provided URL.")
 
           # 5 GB Host Limit Guard
           MAX_UDROP_BYTES = 5 * 1024 * 1024 * 1024  # 5.0 GB
@@ -281,7 +307,6 @@ jobs:
               if target_folder_id:
                   fields["folder_id"] = str(target_folder_id)
 
-              # Retry loop (up to 3 attempts per file)
               max_attempts = 3
               success = False
 
@@ -297,7 +322,6 @@ jobs:
                               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                           }
 
-                          # Extended 1800s (30 min) timeout to avoid dropouts
                           upload_res = session.post(
                               f"{API_BASE}/file/upload",
                               data=m,
