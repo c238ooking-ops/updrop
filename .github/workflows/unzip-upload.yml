@@ -87,31 +87,24 @@ jobs:
           try:
               target_idx = max(0, int(ACCOUNT_RAW_NUM) - 1)
           except ValueError:
-              print(f"⚠️ Invalid number '{ACCOUNT_RAW_NUM}', defaulting to Account 1")
               target_idx = 0
 
           if ACCOUNTS_RAW:
               try:
                   acc_data = json.loads(ACCOUNTS_RAW)
-                  if isinstance(acc_data, list):
-                      if target_idx < len(acc_data):
-                          selected = acc_data[target_idx]
-                          key1 = selected.get("key1")
-                          key2 = selected.get("key2")
-                          acc_name = selected.get("name", f"Account {target_idx + 1}")
-                          print(f"🎯 Selected Account #{ACCOUNT_RAW_NUM} (Index [{target_idx}]): '{acc_name}'")
-                      else:
-                          print(f"⚠️ Account #{ACCOUNT_RAW_NUM} exceeds total accounts ({len(acc_data)}) in JSON!")
-              except Exception as e:
-                  print(f"⚠️ JSON parse error: {e}")
+                  if isinstance(acc_data, list) and target_idx < len(acc_data):
+                      selected = acc_data[target_idx]
+                      key1 = selected.get("key1")
+                      key2 = selected.get("key2")
+              except Exception:
+                  pass
 
           if not key1 or not key2:
-              print("⚠️ Falling back to default repository secrets UDROP_KEY1 / UDROP_KEY2...")
               key1 = os.environ.get("FALLBACK_KEY1")
               key2 = os.environ.get("FALLBACK_KEY2")
 
           if not key1 or not key2:
-              raise Exception(f"❌ Missing API credentials for Account #{ACCOUNT_RAW_NUM}!")
+              raise Exception("❌ Missing API credentials!")
 
           # 2. AUTHENTICATE
           auth_res = requests.post(f"{API_BASE}/authorize", data={"key1": key1, "key2": key2})
@@ -123,157 +116,99 @@ jobs:
           account_id = auth_data["data"]["account_id"]
           print(f"✅ Authenticated! Account ID: {account_id}")
 
-          # 3. OFFICIAL SPEC FOLDER RESOLUTION & CREATION
+          # 3. FOLDER RESOLUTION
           target_folder_id = ""
           if FOLDER_PATH:
               if FOLDER_PATH.strip().isdigit():
                   target_folder_id = FOLDER_PATH.strip()
-                  print(f"🎯 Direct Numeric Folder ID: {target_folder_id}")
               else:
                   segments = [s.strip() for s in re.split(r'[\\/]+', FOLDER_PATH) if s.strip()]
-                  print(f"📂 Resolving nested path: {' ➔ '.join(segments)}")
-
                   current_parent_id = ""
-
                   for segment in segments:
-                      list_payload = {
-                          "access_token": access_token,
-                          "account_id": account_id
-                      }
+                      list_payload = {"access_token": access_token, "account_id": account_id}
                       if current_parent_id:
                           list_payload["parent_folder_id"] = str(current_parent_id)
 
                       listing_res = requests.post(f"{API_BASE}/folder/listing", data=list_payload).json()
-
-                      folders_list = []
-                      if listing_res.get("_status") == "success" and listing_res.get("data"):
-                          d = listing_res["data"]
-                          folders_list = d.get("folders", []) if isinstance(d, dict) else d
+                      folders_list = listing_res.get("data", {}).get("folders", []) if isinstance(listing_res.get("data"), dict) else listing_res.get("data", [])
 
                       found_id = None
                       for f in folders_list:
-                          if f.get("status") == "trash":
-                              continue
-                          f_name = str(f.get("folderName", "")).strip()
-                          if f_name.lower() == segment.lower():
+                          if f.get("status") != "trash" and str(f.get("folderName", "")).strip().lower() == segment.lower():
                               found_id = str(f.get("id"))
-                              print(f"  📁 Found folder inside {current_parent_id or 'Root'}: '{f_name}' (ID: {found_id})")
                               break
 
                       if not found_id:
-                          print(f"  📂 Folder '{segment}' not found inside {current_parent_id or 'Root'}. Creating it...")
-                          create_payload = {
-                              "access_token": access_token,
-                              "account_id": account_id,
-                              "folder_name": segment,
-                              "is_public": 1
-                          }
+                          create_payload = {"access_token": access_token, "account_id": account_id, "folder_name": segment, "is_public": 1}
                           if current_parent_id:
                               create_payload["parent_id"] = str(current_parent_id)
-
                           create_res = requests.post(f"{API_BASE}/folder/create", data=create_payload).json()
                           if create_res.get("_status") == "success" and create_res.get("data"):
-                              data_obj = create_res["data"]
-                              found_id = str(data_obj.get("id") or data_obj.get("folder_id"))
-                              print(f"  ✅ Created '{segment}' (ID: {found_id})")
-                          else:
-                              print(f"  ⚠️ Failed creating '{segment}' ({create_res.get('response')}).")
-                              break
-
+                              found_id = str(create_res["data"].get("id") or create_res["data"].get("folder_id"))
                       current_parent_id = found_id
-
                   target_folder_id = current_parent_id or ""
 
-          print(f"🎯 Final Target Upload Folder ID: {target_folder_id or 'Root'}")
+          print(f"🎯 Target Folder ID: {target_folder_id or 'Root'}")
 
-          # 4. RESOLVE DYNAMIC GATED LINKS & MULTI-ENGINE DOWNLOAD
-          download_url = FILE_URL
+          # 4. DOWNLOAD HANDLING WITH PLAYWRIGHT FILENAME CAPTURE
+          download_filename = "downloaded_payload"
+          final_saved_filename = "video.mkv"
 
-          # Async function to handle Skydrop via Playwright browser execution
           async def download_skydrop(url):
+              nonlocal final_saved_filename
               print("🌐 Skydrop link detected. Launching automated headless browser...")
               async with async_playwright() as p:
                   browser = await p.chromium.launch(headless=True)
                   context = await browser.new_context(accept_downloads=True)
                   page = await context.new_page()
                   
-                  print("📥 Navigating to Skydrop landing page...")
                   await page.goto(url, wait_until="networkidle")
-                  
                   try:
-                      print("⏳ Locating 'Download Video' button...")
                       download_btn = page.locator("a:has-text('Download Video'), button:has-text('Download Video')")
                       await download_btn.wait_for(state="visible", timeout=20000)
                       
-                      print("🔘 Clicking download and capturing stream...")
                       async with page.expect_download(timeout=60000) as download_info:
                           await download_btn.first.click()
                       
                       download = await download_info.value
-                      await download.save_as("downloaded_payload")
-                      print(f"🎉 Successfully downloaded via Playwright: {download.suggested_filename}")
+                      final_saved_filename = download.suggested_filename
+                      await download.save_as(download_filename)
+                      print(f"🎉 Successfully downloaded via Playwright: {final_saved_filename}")
                   except Exception as e:
                       raise Exception(f"❌ Playwright download failed for Skydrop: {e}")
                   finally:
                       await browser.close()
 
-          # Pixeldrain direct API mapping
+          download_url = FILE_URL
           pixeldrain_match = re.search(r'pixeldrain\.(?:dev|com)/u/([a-zA-Z0-9_-]+)', download_url)
           if pixeldrain_match:
               download_url = f"https://pixeldrain.com/api/file/{pixeldrain_match.group(1)}"
-              print(f"🔗 Converted Pixeldrain URL: {download_url}")
 
-          # Execution branching for Skydrop vs Standard Engines
           if "skydrop" in download_url:
               asyncio.run(download_skydrop(download_url))
           else:
-              print("\n📥 Starting accelerated standard multi-engine download...")
-              dl_cmd = (
-                  f'aria2c '
-                  f'-x 16 -s 16 -j 16 -k 2M '
-                  f'--min-split-size=2M '
-                  f'--max-connection-per-server=16 '
-                  f'--file-allocation=none '
-                  f'--summary-interval=30 '
-                  f'--console-log-level=warn '
-                  f'--check-certificate=false '
-                  f'--header="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
-                  f'--header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" '
-                  f'-o "downloaded_payload" "{download_url}" || '
-                  f'curl -L -k -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" '
-                  f'-o "downloaded_payload" "{download_url}" || '
-                  f'yt-dlp --no-check-certificate -o "downloaded_payload" "{download_url}"'
-              )
+              dl_cmd = f'aria2c -x 16 -s 16 -k 2M --file-allocation=none -o "{download_filename}" "{download_url}"'
+              if os.system(dl_cmd) != 0 or not os.path.exists(download_filename):
+                  raise Exception("❌ Standard download failed.")
+              # Extract clean filename from direct URL if available
+              raw_name = download_url.split("/")[-1].split("?")[0]
+              if "." in raw_name:
+                  final_saved_filename = raw_name
 
-              if os.system(dl_cmd) != 0 or not os.path.exists("downloaded_payload"):
-                  raise Exception("❌ All download attempts failed for the provided URL.")
-
-          # 5 GB Host Limit Guard
-          MAX_UDROP_BYTES = 5 * 1024 * 1024 * 1024  # 5.0 GB
-          downloaded_size = os.path.getsize("downloaded_payload")
-          downloaded_size_gb = round(downloaded_size / (1024**3), 2)
-          print(f"📦 Payload size: {downloaded_size_gb} GB")
-
-          if not zipfile.is_zipfile("downloaded_payload") and downloaded_size > MAX_UDROP_BYTES:
-              raise Exception(
-                  f"❌ File size ({downloaded_size_gb} GB) exceeds uDrop's 5.0 GB upload limit. "
-                  "Please provide individual episode files or an archive of split parts."
-              )
+          # Size Guard (5 GB limit)
+          MAX_UDROP_BYTES = 5 * 1024 * 1024 * 1024
+          downloaded_size = os.path.getsize(download_filename)
+          if not zipfile.is_zipfile(download_filename) and downloaded_size > MAX_UDROP_BYTES:
+              raise Exception(f"❌ File size exceeds uDrop's 5.0 GB limit.")
 
           # 5. UNPACK OR RENAME
           os.makedirs("ready_to_upload", exist_ok=True)
-          if zipfile.is_zipfile("downloaded_payload"):
-              print("📦 Valid archive found. Extracting files...")
-              with zipfile.ZipFile("downloaded_payload", "r") as zip_ref:
+          if zipfile.is_zipfile(download_filename):
+              with zipfile.ZipFile(download_filename, "r") as zip_ref:
                   zip_ref.extractall("ready_to_upload")
-              os.remove("downloaded_payload")
+              os.remove(download_filename)
           else:
-              print("🎬 Direct file found. Moving to upload queue...")
-              dest_name = "video.mkv"
-              raw_name = FILE_URL.split("/")[-1].split("?")[0]
-              if "." in raw_name:
-                  dest_name = raw_name
-              os.rename("downloaded_payload", os.path.join("ready_to_upload", dest_name))
+              os.rename(download_filename, os.path.join("ready_to_upload", final_saved_filename))
 
           video_exts = ('.mp4', '.mkv', '.avi', '.webm', '.ts')
           upload_files = []
@@ -282,61 +217,36 @@ jobs:
                   if file.lower().endswith(video_exts):
                       upload_files.append(os.path.join(root, file))
 
-          print(f"🎬 Found {len(upload_files)} media item(s).")
+          print(f"🎬 Found {len(upload_files)} media item(s): {[os.path.basename(f) for f in upload_files]}")
           if not upload_files:
               sys.exit(0)
 
-          # 6. STREAMED UPLOAD WITH TIMEOUT & RETRY HANDLING
+          # 6. STREAMED UPLOAD
           import time
           from requests_toolbelt.multipart.encoder import MultipartEncoder
 
-          print(f"\n🚀 Uploading items...")
           ready_links = []
-
           session = requests.Session()
-          adapter = requests.adapters.HTTPAdapter(max_retries=3)
-          session.mount("https://", adapter)
 
           for file_path in sorted(upload_files):
               filename = os.path.basename(file_path)
               filesize_mb = round(os.path.getsize(file_path) / (1024 * 1024), 2)
-              print(f"\nUploading: {filename} ({filesize_mb} MB)...")
+              print(f"\n🚀 Uploading: {filename} ({filesize_mb} MB)...")
 
-              fields = {
-                  "access_token": access_token,
-                  "account_id": str(account_id),
-              }
+              fields = {"access_token": access_token, "account_id": str(account_id)}
               if target_folder_id:
                   fields["folder_id"] = str(target_folder_id)
 
-              max_attempts = 3
-              success = False
-
-              for attempt in range(1, max_attempts + 1):
+              for attempt in range(1, 4):
                   try:
                       with open(file_path, "rb") as f:
                           fields_copy = fields.copy()
                           fields_copy["upload_file"] = (filename, f, "application/octet-stream")
                           m = MultipartEncoder(fields=fields_copy)
+                          headers = {"Content-Type": m.content_type, "User-Agent": "Mozilla/5.0"}
 
-                          headers = {
-                              "Content-Type": m.content_type,
-                              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                          }
-
-                          upload_res = session.post(
-                              f"{API_BASE}/file/upload",
-                              data=m,
-                              headers=headers,
-                              timeout=(30, 1800)
-                          )
-
-                          try:
-                              res_json = upload_res.json()
-                          except Exception:
-                              print(f"  ⚠️ Non-JSON response ({upload_res.status_code}). Retrying...")
-                              time.sleep(5)
-                              continue
+                          upload_res = session.post(f"{API_BASE}/file/upload", data=m, headers=headers, timeout=(30, 1800))
+                          res_json = upload_res.json()
 
                           if res_json.get("_status") == "success" and res_json.get("data"):
                               data_obj = res_json["data"]
@@ -345,20 +255,11 @@ jobs:
                               link = f"https://www.udrop.com/file/{short_url}/{filename}" if short_url else (file_meta.get("url") or "")
                               print(f"  -> Uploaded: {link}")
                               ready_links.append(link)
-                              success = True
                               break
-                          else:
-                              print(f"  ❌ Attempt {attempt} failed: {res_json.get('response')}")
-                              time.sleep(5)
+                  except Exception as e:
+                      print(f"  ⚠️ Attempt {attempt} error: {e}")
+                      time.sleep(5)
 
-                  except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as err:
-                      print(f"  ⚠️ Connection dropped on attempt {attempt}/{max_attempts}: {err}")
-                      time.sleep(10)
-
-              if not success:
-                  print(f"  ❌ Skipping {filename} after {max_attempts} failed attempts.")
-
-          # 7. SUMMARY
           print("\n" + "="*50)
           print("📋 DIRECT STREAM / DOWNLOAD LINKS:")
           print("="*50)
