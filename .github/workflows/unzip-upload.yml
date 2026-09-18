@@ -155,7 +155,7 @@ jobs:
           final_saved_filename = "video.mkv"
 
           async def download_skydrop(url):
-              nonlocal final_saved_filename
+              global final_saved_filename
               print("🌐 Skydrop link detected. Launching automated headless browser...")
               async with async_playwright() as p:
                   browser = await p.chromium.launch(headless=True)
@@ -190,7 +190,6 @@ jobs:
               dl_cmd = f'aria2c -x 16 -s 16 -k 2M --file-allocation=none -o "{download_filename}" "{download_url}"'
               if os.system(dl_cmd) != 0 or not os.path.exists(download_filename):
                   raise Exception("❌ Standard download failed.")
-              # Extract clean filename from direct URL if available
               raw_name = download_url.split("/")[-1].split("?")[0]
               if "." in raw_name:
                   final_saved_filename = raw_name
