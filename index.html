@@ -38,7 +38,6 @@
         .movie-card { background: var(--card); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); position: relative; cursor: pointer; transition: transform 0.25s ease, box-shadow 0.25s ease; }
         .movie-card:hover { transform: translateY(-6px); box-shadow: 0 10px 25px rgba(0,0,0,0.6); border-color: #444; }
         
-        /* Shimmer background loading effect for posters */
         .poster-wrapper { width: 100%; aspect-ratio: 2 / 3; background: #1c1c1c; position: relative; overflow: hidden; }
         .poster-wrapper img { width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s ease, transform 0.3s ease; opacity: 0; }
         .poster-wrapper img.loaded { opacity: 1; }
@@ -146,23 +145,63 @@
                 const groupedSeries = {};
                 let standalone = [];
 
-                Object.keys(ownedDatabase).forEach(id => {
+                for (const id of Object.keys(ownedDatabase)) {
                     const item = ownedDatabase[id];
                     const type = item.meta.type || 'movie';
                     const name = item.meta.name;
+                    // Extract clean IMDb ID (e.g. tt0413300 from tt0413300:1:1 or tt0413300)
+                    const cleanId = id.split(':')[0];
+
+                    // Fetch rich metadata (synopsis, backdrop, genres, year) from Cinemeta API automatically
+                    let metaDetails = { description: "Owned vault item.", year: "", genre: "", backdrop: item.meta.poster };
+                    try {
+                        const metaRes = await fetch(`https://v3-cinemeta.strem.io/meta/${type}/${cleanId}.json`);
+                        const metaData = await metaRes.json();
+                        if (metaData && metaData.meta) {
+                            metaDetails.description = metaData.meta.description || "No synopsis available.";
+                            metaDetails.year = metaData.meta.year || "";
+                            metaDetails.genre = (metaData.meta.genres || []).join(', ');
+                            metaDetails.backdrop = metaData.meta.background || item.meta.poster;
+                        }
+                    } catch (err) {
+                        // Fallback gracefully if offline
+                    }
 
                     if (type === 'series' || id.includes(':')) {
                         if (!groupedSeries[name]) {
-                            groupedSeries[name] = { id: name, title: name, poster: item.meta.poster, backdrop: item.meta.poster, type: 'series', streams: [], isOwned: true, description: "Owned series collection stored locally in your vault database." };
+                            groupedSeries[name] = { 
+                                id: cleanId, 
+                                title: name, 
+                                poster: item.meta.poster, 
+                                backdrop: metaDetails.backdrop,
+                                type: 'series', 
+                                year: metaDetails.year,
+                                genre: metaDetails.genre,
+                                description: metaDetails.description,
+                                streams: [], 
+                                isOwned: true 
+                            };
                         }
                         if (item.streams) item.streams.forEach(s => groupedSeries[name].streams.push(s));
                     } else {
-                        standalone.push({ id: id, title: name, poster: item.meta.poster, backdrop: item.meta.poster, type: 'movie', streams: item.streams || [], isOwned: true, description: "Owned movie item stored locally in your vault database." });
+                        standalone.push({ 
+                            id: cleanId, 
+                            title: name, 
+                            poster: item.meta.poster, 
+                            backdrop: metaDetails.backdrop,
+                            type: 'movie', 
+                            year: metaDetails.year,
+                            genre: metaDetails.genre,
+                            description: metaDetails.description,
+                            streams: item.streams || [], 
+                            isOwned: true 
+                        });
                     }
-                });
+                }
 
                 processedOwned = [...standalone, ...Object.values(groupedSeries)];
-                document.getElementById('statsBox').innerHTML = `<b>Owned Vault:</b> ${processedOwned.length} items loaded`;
+                document.getElementById('statsBox').innerHTML = `<b>Owned Vault:</b> ${processedOwned.length} items loaded[cite: 1]`;
+                renderGrid();
             } catch (e) {
                 document.getElementById('statsBox').innerHTML = `<b>Vault:</b> database.json not found`;
             }
