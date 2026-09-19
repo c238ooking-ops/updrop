@@ -125,6 +125,7 @@
         let currentTab = 'owned';
         let currentType = 'movie';
         let processedOwned = [];
+        let ownedIdMap = new Set();
         let browseCache = { movie: [], series: [] };
         let searchTimeout = null;
         let browseSkip = { movie: 0, series: 0 };
@@ -149,10 +150,11 @@
                     const item = ownedDatabase[id];
                     const type = item.meta.type || 'movie';
                     const name = item.meta.name;
-                    // Extract clean IMDb ID (e.g. tt0413300 from tt0413300:1:1 or tt0413300)
                     const cleanId = id.split(':')[0];
 
-                    // Fetch rich metadata (synopsis, backdrop, genres, year) from Cinemeta API automatically
+                    ownedIdMap.add(cleanId);
+                    ownedIdMap.add(name.toLowerCase());
+
                     let metaDetails = { description: "Owned vault item.", year: "", genre: "", backdrop: item.meta.poster };
                     try {
                         const metaRes = await fetch(`https://v3-cinemeta.strem.io/meta/${type}/${cleanId}.json`);
@@ -163,9 +165,7 @@
                             metaDetails.genre = (metaData.meta.genres || []).join(', ');
                             metaDetails.backdrop = metaData.meta.background || item.meta.poster;
                         }
-                    } catch (err) {
-                        // Fallback gracefully if offline
-                    }
+                    } catch (err) {}
 
                     if (type === 'series' || id.includes(':')) {
                         if (!groupedSeries[name]) {
@@ -234,18 +234,23 @@
                 const data = await res.json();
                 const metas = data.metas || [];
 
-                const formatted = metas.map(m => ({
-                    id: m.id, 
-                    title: m.name, 
-                    poster: m.poster, 
-                    backdrop: m.background || m.poster,
-                    type: currentType, 
-                    year: m.year || '', 
-                    genre: (m.genres || []).join(', '),
-                    description: m.description || 'No synopsis available for this title.',
-                    streams: [], 
-                    isOwned: false
-                }));
+                const formatted = metas.map(m => {
+                    const cleanId = m.id.split(':')[0];
+                    const isAlreadyOwned = ownedIdMap.has(cleanId) || ownedIdMap.has(m.name.toLowerCase());
+
+                    return {
+                        id: cleanId, 
+                        title: m.name, 
+                        poster: m.poster, 
+                        backdrop: m.background || m.poster,
+                        type: currentType, 
+                        year: m.year || '', 
+                        genre: (m.genres || []).join(', '),
+                        description: m.description || 'No synopsis available for this title.',
+                        streams: isAlreadyOwned ? (processedOwned.find(o => o.title.toLowerCase() === m.name.toLowerCase())?.streams || []) : [], 
+                        isOwned: isAlreadyOwned
+                    };
+                });
 
                 if (reset) {
                     browseCache[currentType] = formatted;
@@ -340,20 +345,39 @@
             `).join('');
         }
 
-        function openDetailsModal(id, isOwned) {
+        async function openDetailsModal(id, isOwned) {
             let item;
-            if (isOwned) {
+            if (currentTab === 'owned') {
                 item = processedOwned.find(m => m.id === id);
             } else {
                 item = browseCache[currentType].find(m => m.id === id);
+                // If browsing and it's actually owned, pull its streams from processedOwned
+                if (item && item.isOwned) {
+                    const ownedMatch = processedOwned.find(o => o.title.toLowerCase() === item.title.toLowerCase());
+                    if (ownedMatch) item.streams = ownedMatch.streams;
+                }
             }
 
             if (!item) return;
 
+            // If description is missing or default, try fetching full meta on click
+            if (!item.description || item.description === 'No synopsis available for this title.') {
+                try {
+                    const metaRes = await fetch(`https://v3-cinemeta.strem.io/meta/${currentType}/${id}.json`);
+                    const metaData = await metaRes.json();
+                    if (metaData && metaData.meta) {
+                        item.description = metaData.meta.description || item.description;
+                        item.year = metaData.meta.year || item.year;
+                        item.genre = (metaData.meta.genres || []).join(', ') || item.genre;
+                        item.backdrop = metaData.meta.background || item.backdrop;
+                    }
+                } catch (e) {}
+            }
+
             document.getElementById('modalBanner').style.backgroundImage = `url('${item.backdrop || item.poster}')`;
 
             let streamsHTML = '';
-            if (isOwned && item.streams.length > 0) {
+            if (item.isOwned && item.streams && item.streams.length > 0) {
                 streamsHTML = `<h3 style="font-size:0.9rem; margin: 15px 0 10px 0; color:var(--accent);">Available Vault Streams</h3>` + 
                     item.streams.map(s => `
                         <div class="stream-item">
