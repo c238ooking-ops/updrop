@@ -125,9 +125,7 @@
                 <h2 id="modalTitle">Available Streams</h2>
                 <button class="modal-close" onclick="closeModal()">&times;</button>
             </div>
-            <div id="modalBody" class="modal-body">
-                <!-- Stream links injected dynamically -->
-            </div>
+            <div id="modalBody" class="modal-body"></div>
         </div>
     </div>
 
@@ -140,7 +138,7 @@
         document.getElementById('tmdbKeyInput').value = tmdbKey;
 
         function saveConfig() {
-            tmdbKey = document.getElementById('tmdbKeyInput'].value.trim();
+            tmdbKey = document.getElementById('tmdbKeyInput').value.trim();
             localStorage.setItem('tmdb_key', tmdbKey);
             alert("TMDB Key saved!");
             if(document.getElementById('tabBrowse').classList.contains('active')) {
@@ -160,13 +158,11 @@
             }
         }
 
-        // Load database.json on startup
         async function loadOwnedData() {
             try {
                 const res = await fetch('database.json');
                 ownedDatabase = await res.json();
                 
-                // Convert object map into an array for easy filtering and rendering
                 ownedArray = Object.keys(ownedDatabase).map(id => {
                     const item = ownedDatabase[id];
                     return {
@@ -234,7 +230,6 @@
             document.getElementById('streamsModal').style.display = 'none';
         }
 
-        // TMDB Browse Integration
         async function tmdbFetch(endpoint) {
             let url = `https://api.themoviedb.org/3${endpoint}`;
             if (tmdbKey.length <= 50) {
@@ -286,8 +281,10 @@
                 const year = (item.release_date || item.first_air_date || "").split('-')[0] || "N/A";
                 const poster = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : 'https://via.placeholder.com/150x225?text=No+Poster';
                 const rating = item.vote_average ? item.vote_average.toFixed(1) : '-';
+                
+                const encodedTitle = encodeURIComponent(title + ' torrent');
                 return `
-                    <div class="movie-card" onclick="window.open('https://www.google.com/search?q=${encodeURIComponent(title + ' torrent')}','_blank')" title="Search web">
+                    <div class="movie-card" onclick="window.open('https://www.google.com/search?q=${encodedTitle}','_blank')" title="Search web">
                         <div class="year-badge">${year}</div>
                         <div class="poster-container"><img src="${poster}" loading="lazy"></div>
                         <div class="movie-info">
@@ -307,7 +304,6 @@
             if (query) searchTMDB(); else loadTrending();
         }
 
-        // Initialize App on load
         loadOwnedData();
     </script>
 </body>
