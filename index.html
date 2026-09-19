@@ -14,7 +14,7 @@
         .sidebar h1 { font-size: 1rem; color: var(--accent); letter-spacing: 2px; margin-bottom: 15px; border-left: 3px solid var(--accent); padding-left: 10px; }
         
         .nav-tabs { display: flex; gap: 8px; margin-bottom: 20px; background: #181818; padding: 4px; border-radius: 6px; border: 1px solid var(--border); }
-        .nav-tab { flex: 1; background: transparent; border: none; color: var(--dim); padding: 10px 6px; font-size: 0.75rem; font-weight: bold; border-radius: 4px; cursor: pointer; text-align: center; }
+        .nav-tab { flex: 1; background: transparent; border: none; color: var(--dim); padding: 10px 6px; font-size: 0.7rem; font-weight: bold; border-radius: 4px; cursor: pointer; text-align: center; }
         .nav-tab.active { background: var(--accent); color: #000; }
 
         .config-box { background: #151515; border: 1px solid var(--border); padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.7rem; }
@@ -46,7 +46,11 @@
         .year-badge { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.7); font-size: 0.6rem; padding: 2px 5px; border-radius: 4px; }
         .owned-dot { position: absolute; top: 8px; left: 8px; width: 8px; height: 8px; background: var(--accent); border-radius: 50%; box-shadow: 0 0 8px var(--accent); }
         
-        #browseView { display: flex; flex-direction: column; flex-grow: 1; }
+        /* Main View Switcher Bar */
+        .main-view-bar { display: flex; gap: 10px; margin-bottom: 15px; background: #151515; padding: 6px; border-radius: 8px; border: 1px solid var(--border); }
+        .main-view-btn { flex: 1; background: #222; border: 1px solid var(--border); color: var(--dim); padding: 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; cursor: pointer; text-align: center; }
+        .main-view-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
         .browse-header-row { display: flex; gap: 10px; margin-bottom: 15px; }
         .browse-header-row input { flex-grow: 1; padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: white; font-size: 1rem; }
         .btn-search-exec { background: var(--accent); color: #000; border: none; padding: 0 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
@@ -82,8 +86,8 @@
         </div>
 
         <div class="nav-tabs">
-            <button class="nav-tab active" id="tabOwned" onclick="switchTab('owned')">✅ Owned Vault</button>
-            <button class="nav-tab" id="tabBrowse" onclick="switchTab('browse')">🔥 Browse TMDB</button>
+            <button class="nav-tab active" id="tabOwned" onclick="switchMainTab('owned')">📦 Owned Library</button>
+            <button class="nav-tab" id="tabBrowse" onclick="switchMainTab('browse')">🔥 Browse TMDB</button>
         </div>
 
         <div id="ownedFilters">
@@ -96,21 +100,22 @@
     </div>
 
     <div class="main-content">
+        <!-- Top Section Switcher: Movies vs Series -->
+        <div class="main-view-bar">
+            <button class="main-view-btn active" id="filterMovieBtn" onclick="switchMediaFilter('movie')">🎬 Movies</button>
+            <button class="main-view-btn" id="filterSeriesBtn" onclick="switchMediaFilter('series')">📺 Series / Shows</button>
+        </div>
+
         <!-- Owned View (Loads from database.json) -->
         <div id="ownedView" style="display:flex; flex-direction: column; flex-grow: 1; overflow-y: auto;">
             <div id="movieGrid" class="movie-grid"></div>
         </div>
 
         <!-- Browse View (TMDB Trending & Search) -->
-        <div id="browseView" style="display:none;">
+        <div id="browseView" style="display:none; flex-direction: column; flex-grow: 1;">
             <div class="browse-header-row">
                 <input type="text" id="browseInput" placeholder="Search movies or shows..." onkeypress="if(event.key === 'Enter') searchTMDB()">
                 <button class="btn-search-exec" onclick="searchTMDB()">Search</button>
-            </div>
-            <div class="modal-subbar">
-                <span style="font-size: 0.65rem; color: var(--dim);">DISCOVER:</span>
-                <button class="tab-btn active" id="typeMovie" onclick="switchBrowseType('movie')">🎬 Movies</button>
-                <button class="tab-btn" id="typeTv" onclick="switchBrowseType('tv')">📺 TV Shows</button>
             </div>
             <div id="browseResults" class="movie-grid" style="overflow-y: auto; flex-grow: 1;">
                 <p style="color: var(--dim); text-align: center; grid-column: 1/-1; margin-top: 40px;">Loading trending releases...</p>
@@ -131,8 +136,9 @@
 
     <script>
         let ownedDatabase = {};
-        let ownedArray = [];
-        let browseType = "movie";
+        let processedOwnedItems = [];
+        let currentMainTab = 'owned'; // 'owned' or 'browse'
+        let currentMediaFilter = 'movie'; // 'movie' or 'series'
         let tmdbKey = localStorage.getItem('tmdb_key') || '';
 
         document.getElementById('tmdbKeyInput').value = tmdbKey;
@@ -141,12 +147,11 @@
             tmdbKey = document.getElementById('tmdbKeyInput').value.trim();
             localStorage.setItem('tmdb_key', tmdbKey);
             alert("TMDB Key saved!");
-            if(document.getElementById('tabBrowse').classList.contains('active')) {
-                loadTrending();
-            }
+            if(currentMainTab === 'browse') loadTrending();
         }
 
-        function switchTab(tab) {
+        function switchMainTab(tab) {
+            currentMainTab = tab;
             document.getElementById('tabOwned').className = `nav-tab ${tab === 'owned' ? 'active' : ''}`;
             document.getElementById('tabBrowse').className = `nav-tab ${tab === 'browse' ? 'active' : ''}`;
             document.getElementById('ownedView').style.display = tab === 'owned' ? 'flex' : 'none';
@@ -158,22 +163,61 @@
             }
         }
 
+        function switchMediaFilter(filter) {
+            currentMediaFilter = filter;
+            document.getElementById('filterMovieBtn').className = `main-view-btn ${filter === 'movie' ? 'active' : ''}`;
+            document.getElementById('filterSeriesBtn').className = `main-view-btn ${filter === 'series' ? 'active' : ''}`;
+
+            if (currentMainTab === 'owned') {
+                updateOwnedUI();
+            } else {
+                loadTrending();
+            }
+        }
+
         async function loadOwnedData() {
             try {
                 const res = await fetch('database.json');
                 ownedDatabase = await res.json();
                 
-                ownedArray = Object.keys(ownedDatabase).map(id => {
+                const groupedSeries = {};
+                let standaloneItems = [];
+
+                // Group multi-episode series together into single cards
+                Object.keys(ownedDatabase).forEach(id => {
                     const item = ownedDatabase[id];
-                    return {
-                        id: id,
-                        title: item.meta.name,
-                        poster: item.meta.poster,
-                        type: item.meta.type,
-                        streams: item.streams || []
-                    };
+                    const type = item.meta.type || 'movie';
+                    const name = item.meta.name;
+
+                    if (type === 'series' || id.includes(':')) {
+                        // Base name grouping for series
+                        if (!groupedSeries[name]) {
+                            groupedSeries[name] = {
+                                id: name,
+                                title: name,
+                                poster: item.meta.poster,
+                                type: 'series',
+                                streams: []
+                            };
+                        }
+                        // Aggregate all streams from all episodes under this series title
+                        if (item.streams) {
+                            item.streams.forEach(s => {
+                                groupedSeries[name].streams.push(s);
+                            });
+                        }
+                    } else {
+                        standaloneItems.push({
+                            id: id,
+                            title: name,
+                            poster: item.meta.poster,
+                            type: 'movie',
+                            streams: item.streams || []
+                        });
+                    }
                 });
-                
+
+                processedOwnedItems = [...standaloneItems, ...Object.values(groupedSeries)];
                 updateOwnedUI();
             } catch (e) {
                 console.error(e);
@@ -183,35 +227,42 @@
 
         function updateOwnedUI() {
             const search = document.getElementById('searchBox').value.toLowerCase();
-            let filtered = ownedArray.filter(m => m.title.toLowerCase().includes(search));
+            
+            // Filter by selected type (movie vs series) and search term
+            let filtered = processedOwnedItems.filter(m => {
+                const matchesType = m.type === currentMediaFilter;
+                const matchesSearch = m.title.toLowerCase().includes(search);
+                return matchesType && matchesSearch;
+            });
             
             const grid = document.getElementById('movieGrid');
             if (filtered.length === 0) {
-                grid.innerHTML = `<p style="color:var(--dim); font-size:0.8rem;">No items found in your vault database.</p>`;
+                grid.innerHTML = `<p style="color:var(--dim); font-size:0.8rem;">No ${currentMediaFilter}s found in your vault database.</p>`;
                 document.getElementById('stats').innerText = `Owned Vault: 0 items`;
                 return;
             }
 
             grid.innerHTML = filtered.map(m => `
-                <div class="movie-card" onclick="openStreamsModal('${m.id}')">
+                <div class="movie-card" onclick="openStreamsModal('${m.id.replace(/'/g, "\\'")}')">
                     <div class="owned-dot" title="In Vault"></div>
                     <div class="poster-container"><img src="${m.poster && m.poster !== 'N/A' ? m.poster : 'https://via.placeholder.com/150x225?text=No+Poster'}" loading="lazy"></div>
                     <div class="movie-info">
                         <h3>${m.title}</h3>
-                        <div style="color:var(--dim); font-size:0.6rem">${m.streams.length} stream(s) available</div>
+                        <div style="color:var(--dim); font-size:0.6rem">${m.streams.length} stream(s)</div>
                     </div>
                 </div>
             `).join('');
-            document.getElementById('stats').innerText = `Owned Vault: ${ownedArray.length} items`;
+            document.getElementById('stats').innerText = `Vault Items: ${processedOwnedItems.length}`;
         }
 
-        function openStreamsModal(id) {
-            const item = ownedDatabase[id];
+        function openStreamsModal(identifier) {
+            // Find item by ID or grouped Series Name
+            const item = processedOwnedItems.find(m => m.id === identifier);
             if (!item) return;
 
             const modal = document.getElementById('streamsModal');
             const modalBody = document.getElementById('modalBody');
-            document.getElementById('modalTitle').innerText = item.meta.name;
+            document.getElementById('modalTitle').innerText = item.title;
 
             modalBody.innerHTML = item.streams.map(s => `
                 <div class="stream-item">
@@ -230,12 +281,15 @@
             document.getElementById('streamsModal').style.display = 'none';
         }
 
+        // TMDB Browse Integration with CORS Mirror Proxy support
         async function tmdbFetch(endpoint) {
-            let url = `https://api.themoviedb.org/3${endpoint}`;
+            let targetUrl = `https://api.themoviedb.org/3${endpoint}`;
             if (tmdbKey.length <= 50) {
-                url += (url.includes('?') ? '&' : '?') + `api_key=${tmdbKey}`;
+                targetUrl += (targetUrl.includes('?') ? '&' : '?') + `api_key=${tmdbKey}`;
             }
-            const res = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
+            // Use public JSON mirror proxy to avoid browser CORS blocks
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+            const res = await fetch(proxyUrl);
             if (!res.ok) throw new Error(`TMDB Error: ${res.status}`);
             return await res.json();
         }
@@ -248,7 +302,8 @@
             const resultsContainer = document.getElementById('browseResults');
             resultsContainer.innerHTML = `<p style="color: var(--dim); text-align: center; grid-column: 1/-1; margin-top: 40px;">Loading trending releases...</p>`;
             try {
-                const data = await tmdbFetch(`/trending/${browseType}/day`);
+                const apiMediaType = currentMediaFilter === 'series' ? 'tv' : 'movie';
+                const data = await tmdbFetch(`/trending/${apiMediaType}/day`);
                 renderTMDBResults(data.results);
             } catch (e) {
                 resultsContainer.innerHTML = `<p style="color: #ff3d00; text-align: center; grid-column: 1/-1; margin-top: 40px;">Failed to load from TMDB. Check your key.</p>`;
@@ -263,7 +318,8 @@
             const resultsContainer = document.getElementById('browseResults');
             resultsContainer.innerHTML = `<p style="color: var(--dim); text-align: center; grid-column: 1/-1; margin-top: 40px;">Searching TMDB...</p>`;
             try {
-                const data = await tmdbFetch(`/search/${browseType}?query=${encodeURIComponent(query)}`);
+                const apiMediaType = currentMediaFilter === 'series' ? 'tv' : 'movie';
+                const data = await tmdbFetch(`/search/${apiMediaType}?query=${encodeURIComponent(query)}`);
                 renderTMDBResults(data.results);
             } catch (e) {
                 resultsContainer.innerHTML = `<p style="color: #ff3d00; text-align: center; grid-column: 1/-1; margin-top: 40px;">Search failed.</p>`;
@@ -296,14 +352,7 @@
             }).join('');
         }
 
-        function switchBrowseType(type) {
-            browseType = type;
-            document.getElementById('typeMovie').className = `tab-btn ${type === 'movie' ? 'active' : ''}`;
-            document.getElementById('typeTv').className = `tab-btn ${type === 'tv' ? 'active' : ''}`;
-            const query = document.getElementById('browseInput').value.trim();
-            if (query) searchTMDB(); else loadTrending();
-        }
-
+        // Initialize App on load
         loadOwnedData();
     </script>
 </body>
