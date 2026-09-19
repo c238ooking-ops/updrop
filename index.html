@@ -37,8 +37,11 @@
         
         .movie-card { background: var(--card); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); position: relative; cursor: pointer; transition: transform 0.25s ease, box-shadow 0.25s ease; }
         .movie-card:hover { transform: translateY(-6px); box-shadow: 0 10px 25px rgba(0,0,0,0.6); border-color: #444; }
-        .poster-wrapper { width: 100%; aspect-ratio: 2 / 3; background: #141414; position: relative; overflow: hidden; }
-        .poster-wrapper img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease; }
+        
+        /* Shimmer background loading effect for posters */
+        .poster-wrapper { width: 100%; aspect-ratio: 2 / 3; background: #1c1c1c; position: relative; overflow: hidden; }
+        .poster-wrapper img { width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s ease, transform 0.3s ease; opacity: 0; }
+        .poster-wrapper img.loaded { opacity: 1; }
         .movie-card:hover .poster-wrapper img { transform: scale(1.05); }
         
         .movie-info { padding: 12px; }
@@ -56,11 +59,10 @@
             .movie-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
         }
 
-        /* Modern Netflix-style Description Modal with Backdrop Banner */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); display: none; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(8px); }
         .modal-box { background: #161616; border: 1px solid var(--border); border-radius: 16px; width: 90%; max-width: 650px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.8); }
         
-        .modal-banner { width: 100%; height: 180px; background-size: cover; background-position: center; position: relative; border-bottom: 1px solid var(--border); }
+        .modal-banner { width: 100%; height: 180px; background-size: cover; background-position: center; position: relative; border-bottom: 1px solid var(--border); background-color: #111; }
         .modal-banner::after { content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 60px; background: linear-gradient(to top, #161616, transparent); }
         .modal-close-abs { position: absolute; top: 15px; right: 15px; background: rgba(0,0,0,0.6); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 5; transition: background 0.2s; }
         .modal-close-abs:hover { background: var(--accent); }
@@ -95,7 +97,7 @@
         <div class="stats-box" id="statsBox">Loading system status...</div>
     </div>
 
-    <div class="main-content" id="mainContainer" onscroll="checkScroll()">
+    <div class="main-content" id="mainContainer">
         <div class="top-bar">
             <div class="type-switcher">
                 <button class="type-btn active" id="filterMovie" onclick="switchType('movie')">🎬 Movies</button>
@@ -112,11 +114,10 @@
         <div id="loadingIndicator" class="loading-indicator" style="display:none;">Loading more titles...</div>
     </div>
 
-    <!-- Description & Streams Modal (Click outside background to close) -->
     <div id="mediaModal" class="modal-overlay" onclick="handleOutsideClick(event)">
         <div class="modal-box" id="modalBox">
             <button class="modal-close-abs" onclick="closeModal()">&times;</button>
-            <div id="modalBanner" class="modal-banner" style="background-image: url('');"></div>
+            <div id="modalBanner" class="modal-banner"></div>
             <div id="modalBody" class="modal-body"></div>
         </div>
     </div>
@@ -152,16 +153,16 @@
 
                     if (type === 'series' || id.includes(':')) {
                         if (!groupedSeries[name]) {
-                            groupedSeries[name] = { id: name, title: name, poster: item.meta.poster, backdrop: item.meta.poster, type: 'series', streams: [], isOwned: true, description: "Owned series collection stored locally in your vault database[cite: 1]." };
+                            groupedSeries[name] = { id: name, title: name, poster: item.meta.poster, backdrop: item.meta.poster, type: 'series', streams: [], isOwned: true, description: "Owned series collection stored locally in your vault database." };
                         }
                         if (item.streams) item.streams.forEach(s => groupedSeries[name].streams.push(s));
                     } else {
-                        standalone.push({ id: id, title: name, poster: item.meta.poster, backdrop: item.meta.poster, type: 'movie', streams: item.streams || [], isOwned: true, description: "Owned movie item stored locally in your vault database[cite: 1]." });
+                        standalone.push({ id: id, title: name, poster: item.meta.poster, backdrop: item.meta.poster, type: 'movie', streams: item.streams || [], isOwned: true, description: "Owned movie item stored locally in your vault database." });
                     }
                 });
 
                 processedOwned = [...standalone, ...Object.values(groupedSeries)];
-                document.getElementById('statsBox').innerHTML = `<b>Owned Vault:</b> ${processedOwned.length} items loaded[cite: 1]`;
+                document.getElementById('statsBox').innerHTML = `<b>Owned Vault:</b> ${processedOwned.length} items loaded`;
             } catch (e) {
                 document.getElementById('statsBox').innerHTML = `<b>Vault:</b> database.json not found`;
             }
@@ -286,7 +287,9 @@
                 <div class="movie-card" onclick="openDetailsModal('${item.id}', ${item.isOwned})">
                     ${item.isOwned ? '<div class="badge-owned">Owned</div>' : ''}
                     <div class="poster-wrapper">
-                        <img src="${item.poster && item.poster !== 'N/A' ? item.poster : 'https://via.placeholder.com/150x225?text=No+Poster'}" loading="lazy">
+                        <img src="${item.poster && item.poster !== 'N/A' ? item.poster : 'https://via.placeholder.com/150x225?text=No+Poster'}" 
+                             loading="lazy" 
+                             onload="this.classList.add('loaded')">
                     </div>
                     <div class="movie-info">
                         <h3>${item.title}</h3>
@@ -355,7 +358,6 @@
 
         function handleOutsideClick(event) {
             const modalBox = document.getElementById('modalBox');
-            // If the click target is the outer overlay and not inside the inner modal box, close it
             if (!modalBox.contains(event.target)) {
                 closeModal();
             }
