@@ -283,16 +283,16 @@
 
         // TMDB Browse Integration with CORS Mirror Proxy support
         async function tmdbFetch(endpoint) {
-            let targetUrl = `https://api.themoviedb.org/3${endpoint}`;
-            if (tmdbKey.length <= 50) {
-                targetUrl += (targetUrl.includes('?') ? '&' : '?') + `api_key=${tmdbKey}`;
-            }
-            // Use public JSON mirror proxy to avoid browser CORS blocks
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-            const res = await fetch(proxyUrl);
-            if (!res.ok) throw new Error(`TMDB Error: ${res.status}`);
-            return await res.json();
-        }
+    let url = `https://api.themoviedb.org/3${endpoint}`;
+    if (tmdbKey.length <= 50) {
+        url += (url.includes('?') ? '&' : '?') + `api_key=${tmdbKey}`;
+    }
+    
+    // Direct fetch without unstable public proxies
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`TMDB Error: ${res.status}`);
+    return await res.json();
+}
 
         async function loadTrending() {
             if (!tmdbKey) {
