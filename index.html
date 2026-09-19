@@ -122,10 +122,15 @@
     </div>
 
     <script>
-        let currentTab = 'owned';
+        // REPLACE THIS with your actual Cloudflare Worker URL
+        const API_BASE = "movie-vault-api.c238ooking.workers.dev";
+
+        let currentTab = 'owned'; // 'owned', 'wishlist', or 'browse'
         let currentType = 'movie';
         let processedOwned = [];
         let ownedIdMap = new Set();
+        let wishlistMap = new Set();
+        let wishlistItems = [];
         let browseCache = { movie: [], series: [] };
         let searchTimeout = null;
         let browseSkip = { movie: 0, series: 0 };
@@ -133,9 +138,51 @@
         let hasMoreItems = true;
 
         async function init() {
+            await loadWishlistFromCloud();
             await loadOwnedDatabase();
             await fetchBrowseCatalog(true);
             renderGrid();
+        }
+
+        async function loadWishlistFromCloud() {
+            try {
+                const res = await fetch(`${API_BASE}/api/wishlist`);
+                const data = await res.json();
+                wishlistItems = data.wishlist || [];
+                wishlistMap = new Set(wishlistItems);
+            } catch (e) {
+                console.error("Failed to load wishlist from cloud, falling back to local storage", e);
+                wishlistItems = JSON.parse(localStorage.getItem('vault_wishlist') || '[]');
+                wishlistMap = new Set(wishlistItems);
+            }
+        }
+
+        async function toggleWishlist(id, event) {
+            event.stopPropagation();
+            const action = wishlistMap.has(id) ? 'remove' : 'add';
+
+            // Optimistic UI update for instant feedback
+            if (action === 'remove') {
+                wishlistMap.delete(id);
+                wishlistItems = wishlistItems.filter(item => item !== id);
+            } else {
+                wishlistMap.add(id);
+                wishlistItems.push(id);
+            }
+            renderGrid();
+
+            // Sync change to Cloudflare D1 database in real-time
+            try {
+                await fetch(`${API_BASE}/api/wishlist`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, action })
+                });
+            } catch (e) {
+                console.error("Failed to sync wishlist change to cloud", e);
+            }
+
+            document.getElementById('statsBox').innerHTML = `<b>Vault:</b> ${processedOwned.length} owned | <b>Wishlist:</b> ${wishlistItems.length}`;
         }
 
         async function loadOwnedDatabase() {
@@ -200,10 +247,10 @@
                 }
 
                 processedOwned = [...standalone, ...Object.values(groupedSeries)];
-                document.getElementById('statsBox').innerHTML = `<b>Owned Vault:</b> ${processedOwned.length} items loaded[cite: 1]`;
+                document.getElementById('statsBox').innerHTML = `<b>Vault:</b> ${processedOwned.length} owned | <b>Wishlist:</b> ${wishlistItems.length}`;
                 renderGrid();
             } catch (e) {
-                document.getElementById('statsBox').innerHTML = `<b>Vault:</b> database.json not found`;
+                document.getElementById('statsBox').innerHTML = `<b>Vault:</b> database.json error`;
             }
         }
 
@@ -272,6 +319,7 @@
         function switchTab(tab) {
             currentTab = tab;
             document.getElementById('navOwned').className = `nav-btn ${tab === 'owned' ? 'active' : ''}`;
+            document.getElementById('navWishlist').className = `nav-btn ${tab === 'wishlist' ? 'active' : ''}`;
             document.getElementById('navBrowse').className = `nav-btn ${tab === 'browse' ? 'active' : ''}`;
             renderGrid();
         }
@@ -317,6 +365,12 @@
 
             if (currentTab === 'owned') {
                 dataset = processedOwned.filter(m => m.type === currentType && m.title.toLowerCase().includes(query));
+            } else if (currentTab === 'wishlist') {
+                const allKnown = [...processedOwned, ...browseCache.movie, ...browseCache.series];
+                const uniqueMap = new Map();
+                allKnown.forEach(i => uniqueMap.set(i.id, i));
+                
+                dataset = wishlistItems.map(id => uniqueMap.get(id)).filter(item => item && item.type === currentType && item.title.toLowerCase().includes(query));
             } else {
                 dataset = (browseCache[currentType] || []).filter(m => m.title.toLowerCase().includes(query));
             }
@@ -327,22 +381,26 @@
                 return;
             }
 
-            grid.innerHTML = dataset.map(item => `
-                <div class="movie-card" onclick="openDetailsModal('${item.id}', ${item.isOwned})">
-                    ${item.isOwned ? '<div class="badge-owned">Owned</div>' : ''}
-                    <div class="poster-wrapper">
-                        <img src="${item.poster && item.poster !== 'N/A' ? item.poster : 'https://via.placeholder.com/150x225?text=No+Poster'}" 
-                             loading="lazy" 
-                             onload="this.classList.add('loaded')">
-                    </div>
-                    <div class="movie-info">
-                        <h3>${item.title}</h3>
-                        <div class="movie-meta-row">
-                            <span>${item.year || (item.streams ? item.streams.length + ' stream(s)' : '')}</span>
+            grid.innerHTML = dataset.map(item => {
+                const isWished = wishlistMap.has(item.id);
+                return `
+                    <div class="movie-card" onclick="openDetailsModal('${item.id}', ${item.isOwned})">
+                        ${item.isOwned ? '<div class="badge-owned">Owned</div>' : ''}
+                        <div class="badge-wish" onclick="toggleWishlist('${item.id}', event)" title="Toggle Wishlist">${isWished ? '❤️' : '🤍'}</div>
+                        <div class="poster-wrapper">
+                            <img src="${item.poster && item.poster !== 'N/A' ? item.poster : 'https://via.placeholder.com/150x225?text=No+Poster'}" 
+                                 loading="lazy" 
+                                 onload="this.classList.add('loaded')">
+                        </div>
+                        <div class="movie-info">
+                            <h3>${item.title}</h3>
+                            <div class="movie-meta-row">
+                                <span>${item.year || (item.streams ? item.streams.length + ' stream(s)' : '')}</span>
+                            </div>
                         </div>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         async function openDetailsModal(id, isOwned) {
@@ -350,17 +408,12 @@
             if (currentTab === 'owned') {
                 item = processedOwned.find(m => m.id === id);
             } else {
-                item = browseCache[currentType].find(m => m.id === id);
-                // If browsing and it's actually owned, pull its streams from processedOwned
-                if (item && item.isOwned) {
-                    const ownedMatch = processedOwned.find(o => o.title.toLowerCase() === item.title.toLowerCase());
-                    if (ownedMatch) item.streams = ownedMatch.streams;
-                }
+                const allKnown = [...processedOwned, ...browseCache.movie, ...browseCache.series];
+                item = allKnown.find(m => m.id === id);
             }
 
             if (!item) return;
 
-            // If description is missing or default, try fetching full meta on click
             if (!item.description || item.description === 'No synopsis available for this title.') {
                 try {
                     const metaRes = await fetch(`https://v3-cinemeta.strem.io/meta/${currentType}/${id}.json`);
@@ -375,6 +428,7 @@
             }
 
             document.getElementById('modalBanner').style.backgroundImage = `url('${item.backdrop || item.poster}')`;
+            const isWished = wishlistMap.has(item.id);
 
             let streamsHTML = '';
             if (item.isOwned && item.streams && item.streams.length > 0) {
@@ -391,7 +445,7 @@
             } else {
                 streamsHTML = `
                     <div style="background:#222; padding:15px; border-radius:8px; text-align:center; margin-top:15px; border:1px solid var(--border);">
-                        <p style="font-size:0.8rem; color:var(--dim); margin-bottom:10px;">Not currently in your owned vault. Download manager integration coming up next!</p>
+                        <p style="font-size:0.80rem; color:var(--dim); margin-bottom:10px;">Not currently in your owned vault. Download manager integration coming up next!</p>
                         <a href="https://www.google.com/search?q=${encodeURIComponent(item.title + ' torrent')}" target="_blank" class="btn-action">Search Web Releases</a>
                     </div>
                 `;
@@ -406,6 +460,9 @@
                             ${item.year ? `<span>📅 ${item.year}</span>` : ''}
                             ${item.genre ? `<span>🎭 ${item.genre}</span>` : ''}
                         </div>
+                        <button class="btn-action btn-wishlist ${isWished ? 'active' : ''}" onclick="toggleWishlist('${item.id}', event); openDetailsModal('${item.id}', ${item.isOwned});">
+                            ${isWished ? '❤️ In Wishlist' : '🤍 Add to Wishlist'}
+                        </button>
                     </div>
                 </div>
                 <p class="modal-desc">${item.description}</p>
