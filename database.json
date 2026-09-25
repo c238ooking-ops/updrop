@@ -1,5 +1,5 @@
 {
-  "custom_s9hvk5": {
+  "tt0184111:1:1": {
     "meta": {
       "name": "ed, edd n eddy season 1",
       "poster": "",
@@ -11,81 +11,30 @@
         "title": "ed, edd n eddy season 1 [Standard]",
         "url": "https://www.udrop.com/file/Q3RA/ed%2C%20edd%20n%20eddy%20season%201.Part1.ts",
         "filename": "ed, edd n eddy season 1.Part1.ts"
-      }
-    ]
-  },
-  "custom_tx0qrr": {
-    "meta": {
-      "name": "ed, edd n eddy season 1",
-      "poster": "",
-      "type": "movie"
-    },
-    "streams": [
+      },
       {
         "name": "uDrop",
         "title": "ed, edd n eddy season 1 [Standard]",
         "url": "https://www.udrop.com/file/Q3RB/ed%2C%20edd%20n%20eddy%20season%201.Part2.ts",
         "filename": "ed, edd n eddy season 1.Part2.ts"
-      }
-    ]
-  },
-  "custom_8eoyaa": {
-    "meta": {
-      "name": "ed, edd n eddy season 1",
-      "poster": "",
-      "type": "movie"
-    },
-    "streams": [
+      },
       {
         "name": "uDrop",
         "title": "ed, edd n eddy season 1 [Standard]",
         "url": "https://www.udrop.com/file/Q3RC/ed%2C%20edd%20n%20eddy%20season%201.Part3.ts",
         "filename": "ed, edd n eddy season 1.Part3.ts"
-      }
-    ]
-  },
-  "custom_a3pvzn": {
-    "meta": {
-      "name": "ed, edd n eddy season 1",
-      "poster": "",
-      "type": "movie"
-    },
-    "streams": [
+      },
       {
         "name": "uDrop",
         "title": "ed, edd n eddy season 1 [Standard]",
         "url": "https://www.udrop.com/file/Q3RD/ed%2C%20edd%20n%20eddy%20season%201.Part4.ts",
         "filename": "ed, edd n eddy season 1.Part4.ts"
-      }
-    ]
-  },
-  "custom_6hym93": {
-    "meta": {
-      "name": "ed, edd n eddy season 1",
-      "poster": "",
-      "type": "movie"
-    },
-    "streams": [
+      },
       {
         "name": "uDrop",
         "title": "ed, edd n eddy season 1 [Standard]",
         "url": "https://www.udrop.com/file/Q3RE/ed%2C%20edd%20n%20eddy%20season%201.Part5.ts",
         "filename": "ed, edd n eddy season 1.Part5.ts"
-      }
-    ]
-  },
-  "tt38616652": {
-    "meta": {
-      "name": "Go Team!",
-      "poster": "https://images.metahub.space/poster/medium/tt38616652/img",
-      "type": "movie"
-    },
-    "streams": [
-      {
-        "name": "uDrop",
-        "title": "Go Team! [Standard]",
-        "url": "https://www.udrop.com/file/PGtY/Go%20Team!%20(2026).mp4",
-        "filename": "Go Team! (2026).mp4"
       }
     ]
   },
