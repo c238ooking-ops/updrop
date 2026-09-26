@@ -1,30 +1,46 @@
 {
   "tt0184111:1:1": {
     "meta": {
-      "name": "ed, edd n eddy S01",
-      "poster": "",
+      "name": "Ed, Edd n Eddy",
+      "poster": "https://images.metahub.space/poster/medium/tt0184111/img",
       "type": "series"
     },
     "streams": [
       {
         "name": "uDrop",
-        "title": "ed, edd n eddy S01 [Standard]",
-        "url": "https://www.udrop.com/file/Q4sK/ed%2C%20edd%20n%20eddy%20S01.Part1.ts",
-        "filename": "ed, edd n eddy S01.Part1.ts"
+        "title": "Ed, Edd n Eddy S1 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4t7/ed%2C%20edd%20n%20eddy%20S01.Part1.ts",
+        "filename": "ed, edd n eddy S01.Part1.ts",
+        "size": 1153009828
       },
       {
         "name": "uDrop",
-        "title": "ed, edd n eddy S01 [Standard]",
-        "url": "https://www.udrop.com/file/Q4sQ/ed%2C%20edd%20n%20eddy%20S01.Part2.ts",
-        "filename": "ed, edd n eddy S01.Part2.ts"
+        "title": "Ed, Edd n Eddy S1 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4t8/ed%2C%20edd%20n%20eddy%20S01.Part2.ts",
+        "filename": "ed, edd n eddy S01.Part2.ts",
+        "size": 1123588768
       },
       {
         "name": "uDrop",
-        "title": "ed, edd n eddy S01 [Standard]",
-        "url": "https://www.udrop.com/file/Q4sR/ed%2C%20edd%20n%20eddy%20S01.Part3.ts",
-        "filename": "ed, edd n eddy S01.Part3.ts"
+        "title": "Ed, Edd n Eddy S1 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4ta/ed%2C%20edd%20n%20eddy%20S01.Part3.ts",
+        "filename": "ed, edd n eddy S01.Part3.ts",
+        "size": 1304251128
+      },
+      {
+        "name": "uDrop",
+        "title": "Ed, Edd n Eddy S1 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4te/ed%2C%20edd%20n%20eddy%20S01.Part4.ts",
+        "filename": "ed, edd n eddy S01.Part4.ts",
+        "size": 1156184960
+      },
+      {
+        "name": "uDrop",
+        "title": "Ed, Edd n Eddy S1 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4tg/ed%2C%20edd%20n%20eddy%20S01.Part5.ts",
+        "filename": "ed, edd n eddy S01.Part5.ts",
+        "size": 1030466540
       }
-      
     ]
   },
   "tt38616652": {
