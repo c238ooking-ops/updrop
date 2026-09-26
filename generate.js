@@ -1,4 +1,8 @@
 import fs from "fs";
+import { exec } from "child_process";
+import util from "util";
+
+const execPromise = util.promisify(exec);
 
 // ================= CONFIGURATION =================
 let ACCOUNTS = [];
@@ -18,6 +22,21 @@ const API_BASE = "https://www.udrop.com/api/v2";
 const VIDEO_EXTS = new Set(["mp4", "mkv", "avi", "webm", "ts"]);
 const SEQUEL_TAGS = new Set(["2", "3", "4", "5", "6", "ii", "iii", "iv", "v", "part", "chapter", "returns", "reloaded"]);
 const PART_REGEX = /(?:[._\s\-\(\[]+)(?:part|pt|cd|disc|disk)[._\s\-]*0*(\d+)/i;
+
+// ================= DURATION EXTRACTION HELPER =================
+async function extractDuration(url) {
+  try {
+    const cmd = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${url}"`;
+    const { stdout } = await execPromise(cmd, { timeout: 15000 });
+    const sec = parseFloat(stdout.trim());
+    if (!isNaN(sec) && sec > 0) {
+      return Math.round(sec); // Stored in total seconds
+    }
+  } catch (e) {
+    // Falls back gracefully if remote header read fails or times out
+  }
+  return null;
+}
 
 // ================= UDROP API HELPERS =================
 async function authorize(key1, key2) {
@@ -125,7 +144,7 @@ function parseFilename(filename) {
   let year = null;
   let titlePart = clean;
 
-  const bracketYear = clean.match(/[\(\[]\s*(19\d\d|20\d\d)\s*[\)\]]/);
+  const bracketYear = clean.match(/[\(\[]\s*(19\d\d\vert{}20\d\d)\s*[\)\]]/);
   if (bracketYear) {
     year = parseInt(bracketYear[1], 10);
     titlePart = clean.replace(bracketYear[0], " ");
@@ -362,13 +381,19 @@ async function run() {
 
       const streamExists = newDb[key].streams.some(s => s.url === directUrl);
       if (!streamExists) {
+        // If duration wasn't saved in the past, extract it now
+        let duration = cached.duration;
+        if (!duration) {
+          duration = await extractDuration(directUrl);
+        }
+
         const item = {
           name: "uDrop",
           title: cached.streamTitle || `${cached.meta.name} [${edition}]`,
           url: directUrl,
           filename: file.filename
         };
-        if (cached.duration) item.duration = cached.duration;
+        if (duration) item.duration = duration;
         if (cached.size) item.size = cached.size;
 
         newDb[key].streams.push(item);
@@ -412,12 +437,17 @@ async function run() {
 
     const streamExists = newDb[streamKey].streams.some(s => s.url === directUrl);
     if (!streamExists) {
-      newDb[streamKey].streams.push({
+      const duration = await extractDuration(directUrl);
+
+      const streamObj = {
         name: "uDrop",
         title: displayTitle,
         url: directUrl,
         filename: file.filename
-      });
+      };
+      if (duration) streamObj.duration = duration;
+
+      newDb[streamKey].streams.push(streamObj);
     }
   }
 
