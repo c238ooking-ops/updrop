@@ -106,18 +106,24 @@ function normalize(str) {
 function parseFilename(filename) {
   let clean = decodeURIComponent(filename).replace(/\.[^/.]+$/, "");
 
+  // TV Series check
   const seriesMatch = 
     clean.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
     clean.match(/(.*?)\s*(\d+)x(\d+)/i) ||
-    clean.match(/(.*?)\s*Season\s*(\d+)\s*Episode\s*(\d+)/i);
+    clean.match(/(.*?)\s*Season\s*(\d+)\s*Episode\s*(\d+)/i) ||
+    clean.match(/(.*?)\s*[sS](\d+)(?!e)/i); // Matches cases like "ed, edd n eddy S01"
 
   if (seriesMatch) {
+    const titleRaw = seriesMatch[1];
+    const seasonNum = parseInt(seriesMatch[2] || 1, 10);
+    const episodeNum = seriesMatch[3] ? parseInt(seriesMatch[3], 10) : 1; // Default to episode 1 if format is just Season/S01
+
     return {
       type: "series",
-      title: cleanGarbage(seriesMatch[1]),
+      title: cleanGarbage(titleRaw),
       year: null,
-      season: parseInt(seriesMatch[2], 10),
-      episode: parseInt(seriesMatch[3], 10)
+      season: seasonNum,
+      episode: episodeNum
     };
   }
 
@@ -232,7 +238,7 @@ async function searchIMDb(title, year) {
       let highestScore = 0;
 
       for (const item of data.d) {
-        if (!item.id || !item.id.startsWith("tt") || item.q === "feature") continue;
+        if (!item.id || !item.id.startsWith("tt")) continue;
         const score = scoreCandidate(item.l, item.y, title, year);
         if (score > highestScore) {
           highestScore = score;
@@ -263,12 +269,10 @@ async function resolveMetadata(parsed) {
     return match;
   }
 
-  if (parsed.type === "movie") {
-    match = await searchIMDb(parsed.title, parsed.year);
-    if (match) {
-      console.log(`  ✅ [IMDb Matched]: ${match.name} (${match.year || ""}) -> ${match.id}`);
-      return match;
-    }
+  match = await searchIMDb(parsed.title, parsed.year);
+  if (match) {
+    console.log(`  ✅ [IMDb Matched]: ${match.name} (${match.year || ""}) -> ${match.id}`);
+    return match;
   }
 
   return null;
@@ -298,7 +302,7 @@ async function run() {
 
   console.log(`\n📡 Total pooled video files across all accounts: ${liveFiles.length}`);
 
-  // Load existing database to preserve durations and metadata
+  // Load existing database to preserve durations, sizes, and stream groupings
   const cachedStreams = new Map();
   if (fs.existsSync("database.json")) {
     try {
@@ -330,13 +334,13 @@ async function run() {
                 streamTitle: s.title,
                 filename: storedFilename,
                 duration: s.duration || null,
-                size: s.size || null
+                size: s.size || s.fileSize || null
               });
             }
           }
         }
       }
-      console.log(`💾 Cache contains ${cachedStreams.size} valid items.`);
+      console.log(`💾 Cache contains ${cachedStreams.size} valid items with preserved properties.`);
     } catch (e) {
       console.log("No valid existing database found. Building fresh.");
     }
@@ -417,10 +421,11 @@ async function run() {
         url: directUrl,
         filename: file.filename
       };
-      // Pull duration and size directly from API file object if available
-      if (file.duration) newItem.duration = parseFloat(file.duration);
-      if (file.size) newItem.size = parseInt(file.size, 10);
-      else if (cached && cached.size) newItem.size = cached.size;
+      
+      // Inherit from cache if available, or parse size from file listing
+      if (cached && cached.duration) newItem.duration = cached.duration;
+      if (cached && cached.size) newItem.size = cached.size;
+      else if (file.fileSize) newItem.size = parseInt(file.fileSize, 10);
 
       newDb[streamKey].streams.push(newItem);
     }
