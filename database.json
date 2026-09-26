@@ -9,10 +9,24 @@
       {
         "name": "uDrop",
         "title": "Ed, Edd n Eddy S1 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4vu/ed%2C%20edd%20n%20eddy%20S01.Part1.ts",
+        "filename": "ed, edd n eddy S01.Part1.ts",
+        "size": 3997488180
+      },
+      {
+        "name": "uDrop",
+        "title": "Ed, Edd n Eddy S1 E1 [Standard]",
         "url": "https://www.udrop.com/file/Q4t7/ed%2C%20edd%20n%20eddy%20S01.Part1.ts",
         "filename": "ed, edd n eddy S01.Part1.ts",
         "duration": 3600.068,
         "size": 1153009828
+      },
+      {
+        "name": "uDrop",
+        "title": "Ed, Edd n Eddy S1 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4vw/ed%2C%20edd%20n%20eddy%20S01.Part2.ts",
+        "filename": "ed, edd n eddy S01.Part2.ts",
+        "size": 2216606480
       },
       {
         "name": "uDrop",
@@ -60,45 +74,6 @@
         "title": "Go Team! [Standard]",
         "url": "https://www.udrop.com/file/PGtY/Go%20Team!%20(2026).mp4",
         "filename": "Go Team! (2026).mp4"
-      }
-    ]
-  },
-  "tt0413300": {
-    "meta": {
-      "name": "Spider-Man 3",
-      "poster": "https://images.metahub.space/poster/medium/tt0413300/img",
-      "type": "movie"
-    },
-    "streams": [
-      {
-        "name": "uDrop",
-        "title": "Spider-Man 3 [Open Matte • 1080P]",
-        "url": "https://www.udrop.com/file/PGEz/Spider-man.3.2007.1080p.open.matte.Part1.mkv",
-        "filename": "Spider-man.3.2007.1080p.open.matte.Part1.mkv"
-      },
-      {
-        "name": "uDrop",
-        "title": "Spider-Man 3 [Open Matte • 1080P]",
-        "url": "https://www.udrop.com/file/PGEB/Spider-man.3.2007.1080p.open.matte.Part2.mkv",
-        "filename": "Spider-man.3.2007.1080p.open.matte.Part2.mkv"
-      },
-      {
-        "name": "uDrop",
-        "title": "Spider-Man 3 [Open Matte • 1080P]",
-        "url": "https://www.udrop.com/file/PGEF/Spider-man.3.2007.1080p.open.matte.Part3.mkv",
-        "filename": "Spider-man.3.2007.1080p.open.matte.Part3.mkv"
-      },
-      {
-        "name": "uDrop",
-        "title": "Spider-Man 3 [Open Matte • 1080P]",
-        "url": "https://www.udrop.com/file/PGEH/Spider-man.3.2007.1080p.open.matte.Part4.mkv",
-        "filename": "Spider-man.3.2007.1080p.open.matte.Part4.mkv"
-      },
-      {
-        "name": "uDrop",
-        "title": "Spider-Man 3 [Open Matte • 1080P]",
-        "url": "https://www.udrop.com/file/PGEI/Spider-man.3.2007.1080p.open.matte.Part5.mkv",
-        "filename": "Spider-man.3.2007.1080p.open.matte.Part5.mkv"
       }
     ]
   },
@@ -399,6 +374,50 @@
         "title": "Teenage Mutant Ninja Turtles [Standard]",
         "url": "https://www.udrop.com/file/PB5i/Teenage%20Mutant%20Ninja%20Turtles%201990.mkv",
         "filename": "Teenage Mutant Ninja Turtles 1990.mkv"
+      }
+    ]
+  },
+  "tt0184111:2:1": {
+    "meta": {
+      "name": "Ed, Edd n Eddy",
+      "poster": "https://images.metahub.space/poster/medium/tt0184111/img",
+      "type": "series"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "Ed, Edd n Eddy S2 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4v4/ed%2C%20edd%20n%20eddy%20S02.Part1.ts",
+        "filename": "ed, edd n eddy S02.Part1.ts",
+        "size": 1166759772
+      },
+      {
+        "name": "uDrop",
+        "title": "Ed, Edd n Eddy S2 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4v7/ed%2C%20edd%20n%20eddy%20S02.Part2.ts",
+        "filename": "ed, edd n eddy S02.Part2.ts",
+        "size": 1052893436
+      },
+      {
+        "name": "uDrop",
+        "title": "Ed, Edd n Eddy S2 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4va/ed%2C%20edd%20n%20eddy%20S02.Part3.ts",
+        "filename": "ed, edd n eddy S02.Part3.ts",
+        "size": 1083278184
+      },
+      {
+        "name": "uDrop",
+        "title": "Ed, Edd n Eddy S2 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4vb/ed%2C%20edd%20n%20eddy%20S02.Part4.ts",
+        "filename": "ed, edd n eddy S02.Part4.ts",
+        "size": 1201621552
+      },
+      {
+        "name": "uDrop",
+        "title": "Ed, Edd n Eddy S2 E1 [Standard]",
+        "url": "https://www.udrop.com/file/Q4vf/ed%2C%20edd%20n%20eddy%20S02.Part5.ts",
+        "filename": "ed, edd n eddy S02.Part5.ts",
+        "size": 1182416412
       }
     ]
   },
