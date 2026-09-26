@@ -2,7 +2,6 @@ name: Auto Sync uDrop Library
 
 on:
   schedule:
-    # Runs every 6 hours automatically
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
@@ -40,7 +39,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "x-sync-secret: my_super_secret_sync_key_123" \
             --data-binary @database.json
-          echo "✅ KV database synchronized with zero delay!"
+          echo "✅ KV database synchronized with zero delay!"[cite: 4]
 
       - name: Commit & Push Changes
         run: |
