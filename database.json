@@ -1,4 +1,49 @@
-
+{
+  "custom_vitexe": {
+    "meta": {
+      "name": "ed, edd n eddy S01",
+      "poster": "",
+      "type": "movie"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "ed, edd n eddy S01 [Standard]",
+        "url": "https://www.udrop.com/file/Q4sK/ed%2C%20edd%20n%20eddy%20S01.Part1.ts",
+        "filename": "ed, edd n eddy S01.Part1.ts"
+      }
+    ]
+  },
+  "custom_q7quto": {
+    "meta": {
+      "name": "ed, edd n eddy S01",
+      "poster": "",
+      "type": "movie"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "ed, edd n eddy S01 [Standard]",
+        "url": "https://www.udrop.com/file/Q4sQ/ed%2C%20edd%20n%20eddy%20S01.Part2.ts",
+        "filename": "ed, edd n eddy S01.Part2.ts"
+      }
+    ]
+  },
+  "custom_81iv2z": {
+    "meta": {
+      "name": "ed, edd n eddy S01",
+      "poster": "",
+      "type": "movie"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "ed, edd n eddy S01 [Standard]",
+        "url": "https://www.udrop.com/file/Q4sR/ed%2C%20edd%20n%20eddy%20S01.Part3.ts",
+        "filename": "ed, edd n eddy S01.Part3.ts"
+      }
+    ]
+  },
   "tt38616652": {
     "meta": {
       "name": "Go Team!",
@@ -11,6 +56,72 @@
         "title": "Go Team! [Standard]",
         "url": "https://www.udrop.com/file/PGtY/Go%20Team!%20(2026).mp4",
         "filename": "Go Team! (2026).mp4"
+      }
+    ]
+  },
+  "tt0413300": {
+    "meta": {
+      "name": "Spider-Man 3",
+      "poster": "https://images.metahub.space/poster/medium/tt0413300/img",
+      "type": "movie"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "Spider-Man 3 [Open Matte • 1080P]",
+        "url": "https://www.udrop.com/file/PGEz/Spider-man.3.2007.1080p.open.matte.Part1.mkv",
+        "filename": "Spider-man.3.2007.1080p.open.matte.Part1.mkv"
+      },
+      {
+        "name": "uDrop",
+        "title": "Spider-Man 3 [Open Matte • 1080P]",
+        "url": "https://www.udrop.com/file/PGEB/Spider-man.3.2007.1080p.open.matte.Part2.mkv",
+        "filename": "Spider-man.3.2007.1080p.open.matte.Part2.mkv"
+      },
+      {
+        "name": "uDrop",
+        "title": "Spider-Man 3 [Open Matte • 1080P]",
+        "url": "https://www.udrop.com/file/PGEF/Spider-man.3.2007.1080p.open.matte.Part3.mkv",
+        "filename": "Spider-man.3.2007.1080p.open.matte.Part3.mkv"
+      },
+      {
+        "name": "uDrop",
+        "title": "Spider-Man 3 [Open Matte • 1080P]",
+        "url": "https://www.udrop.com/file/PGEH/Spider-man.3.2007.1080p.open.matte.Part4.mkv",
+        "filename": "Spider-man.3.2007.1080p.open.matte.Part4.mkv"
+      },
+      {
+        "name": "uDrop",
+        "title": "Spider-Man 3 [Open Matte • 1080P]",
+        "url": "https://www.udrop.com/file/PGEI/Spider-man.3.2007.1080p.open.matte.Part5.mkv",
+        "filename": "Spider-man.3.2007.1080p.open.matte.Part5.mkv"
+      }
+    ]
+  },
+  "tt0316654": {
+    "meta": {
+      "name": "Spider-Man 2",
+      "poster": "https://images.metahub.space/poster/medium/tt0316654/img",
+      "type": "movie"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "Spider-Man 2 [Open Matte]",
+        "url": "https://www.udrop.com/file/PGHw/spiderman.2.2004.open.matte.Part1.ts",
+        "filename": "spiderman.2.2004.open.matte.Part1.ts"
+      },
+      {
+        "name": "uDrop",
+        "title": "Spider-Man 2 [Open Matte]",
+        "url": "https://www.udrop.com/file/PGHz/spiderman.2.2004.open.matte.Part2.ts",
+        "filename": "spiderman.2.2004.open.matte.Part2.ts"
+      },
+      {
+        "name": "uDrop",
+        "title": "Spider-Man 2 [Open Matte]",
+        "url": "https://www.udrop.com/file/PGHA/spiderman.2.2004.open.matte.Part3.ts",
+        "filename": "spiderman.2.2004.open.matte.Part3.ts"
       }
     ]
   },
@@ -83,7 +194,7 @@
     "streams": [
       {
         "name": "uDrop",
-        "title": "Chandni in HD Einthusan [Standard]",
+        "title": "Chandni [Standard]",
         "url": "https://www.udrop.com/file/PGC3/Chandni%20(1989)%20Hindi%20in%20HD%20-%20Einthusan.mp4",
         "filename": "Chandni (1989) Hindi in HD - Einthusan.mp4"
       },
