@@ -1,9 +1,9 @@
 {
-  "custom_vitexe": {
+  "tt0184111:1:1": {
     "meta": {
       "name": "ed, edd n eddy S01",
       "poster": "",
-      "type": "movie"
+      "type": "series"
     },
     "streams": [
       {
@@ -11,37 +11,20 @@
         "title": "ed, edd n eddy S01 [Standard]",
         "url": "https://www.udrop.com/file/Q4sK/ed%2C%20edd%20n%20eddy%20S01.Part1.ts",
         "filename": "ed, edd n eddy S01.Part1.ts"
-      }
-    ]
-  },
-  "custom_q7quto": {
-    "meta": {
-      "name": "ed, edd n eddy S01",
-      "poster": "",
-      "type": "movie"
-    },
-    "streams": [
+      },
       {
         "name": "uDrop",
         "title": "ed, edd n eddy S01 [Standard]",
         "url": "https://www.udrop.com/file/Q4sQ/ed%2C%20edd%20n%20eddy%20S01.Part2.ts",
         "filename": "ed, edd n eddy S01.Part2.ts"
-      }
-    ]
-  },
-  "custom_81iv2z": {
-    "meta": {
-      "name": "ed, edd n eddy S01",
-      "poster": "",
-      "type": "movie"
-    },
-    "streams": [
+      },
       {
         "name": "uDrop",
         "title": "ed, edd n eddy S01 [Standard]",
         "url": "https://www.udrop.com/file/Q4sR/ed%2C%20edd%20n%20eddy%20S01.Part3.ts",
         "filename": "ed, edd n eddy S01.Part3.ts"
       }
+      
     ]
   },
   "tt38616652": {
