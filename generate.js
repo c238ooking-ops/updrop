@@ -1,8 +1,4 @@
 import fs from "fs";
-import { exec } from "child_process";
-import util from "util";
-
-const execPromise = util.promisify(exec);
 
 // ================= CONFIGURATION =================
 let ACCOUNTS = [];
@@ -22,21 +18,6 @@ const API_BASE = "https://www.udrop.com/api/v2";
 const VIDEO_EXTS = new Set(["mp4", "mkv", "avi", "webm", "ts"]);
 const SEQUEL_TAGS = new Set(["2", "3", "4", "5", "6", "ii", "iii", "iv", "v", "part", "chapter", "returns", "reloaded"]);
 const PART_REGEX = /(?:[._\s\-\(\[]+)(?:part|pt|cd|disc|disk)[._\s\-]*0*(\d+)/i;
-
-// ================= DURATION EXTRACTION HELPER =================
-async function extractDuration(url) {
-  try {
-    const cmd = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${url}"`;
-    const { stdout } = await execPromise(cmd, { timeout: 15000 });
-    const sec = parseFloat(stdout.trim());
-    if (!isNaN(sec) && sec > 0) {
-      return Math.round(sec); // Stored in total seconds
-    }
-  } catch (e) {
-    // Falls back gracefully if remote header read fails or times out
-  }
-  return null;
-}
 
 // ================= UDROP API HELPERS =================
 async function authorize(key1, key2) {
@@ -109,7 +90,7 @@ function getEditionTag(filename) {
 function cleanGarbage(str) {
   return str
     .replace(/[\[\(\{].*?[\]\)\}]/g, " ")
-    .replace(PART_REGEX, " ") // Strip .Part1, .Part02 so Cinemeta searches base movie title
+    .replace(PART_REGEX, " ") 
     .replace(/[\._\-~+]/g, " ")
     .replace(/\b(theatrical|workprint|scan|35mm|70mm|vhsrip|vhs|telesync|camrip|cam)\b/gi, "")
     .replace(/\b(4k|2160p|1440p|1080p|720p|480p|hdrip|webrip|web-dl|bluray|brrip|bdrip|dvdrip|remux|open matte|extended|imax|directors cut|unrated)\b/gi, "")
@@ -125,7 +106,6 @@ function normalize(str) {
 function parseFilename(filename) {
   let clean = decodeURIComponent(filename).replace(/\.[^/.]+$/, "");
 
-  // TV Series check
   const seriesMatch = 
     clean.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
     clean.match(/(.*?)\s*(\d+)x(\d+)/i) ||
@@ -381,19 +361,13 @@ async function run() {
 
       const streamExists = newDb[key].streams.some(s => s.url === directUrl);
       if (!streamExists) {
-        // If duration wasn't saved in the past, extract it now
-        let duration = cached.duration;
-        if (!duration) {
-          duration = await extractDuration(directUrl);
-        }
-
         const item = {
           name: "uDrop",
           title: cached.streamTitle || `${cached.meta.name} [${edition}]`,
           url: directUrl,
           filename: file.filename
         };
-        if (duration) item.duration = duration;
+        if (cached.duration) item.duration = cached.duration;
         if (cached.size) item.size = cached.size;
 
         newDb[key].streams.push(item);
@@ -437,17 +411,18 @@ async function run() {
 
     const streamExists = newDb[streamKey].streams.some(s => s.url === directUrl);
     if (!streamExists) {
-      const duration = await extractDuration(directUrl);
-
-      const streamObj = {
+      const newItem = {
         name: "uDrop",
         title: displayTitle,
         url: directUrl,
         filename: file.filename
       };
-      if (duration) streamObj.duration = duration;
+      // Pull duration and size directly from API file object if available
+      if (file.duration) newItem.duration = parseFloat(file.duration);
+      if (file.size) newItem.size = parseInt(file.size, 10);
+      else if (cached && cached.size) newItem.size = cached.size;
 
-      newDb[streamKey].streams.push(streamObj);
+      newDb[streamKey].streams.push(newItem);
     }
   }
 
