@@ -106,17 +106,16 @@ function normalize(str) {
 function parseFilename(filename) {
   let clean = decodeURIComponent(filename).replace(/\.[^/.]+$/, "");
 
-  // TV Series check
   const seriesMatch = 
     clean.match(/(.*?)\s*[sS](\d+)[eE](\d+)/i) || 
     clean.match(/(.*?)\s*(\d+)x(\d+)/i) ||
     clean.match(/(.*?)\s*Season\s*(\d+)\s*Episode\s*(\d+)/i) ||
-    clean.match(/(.*?)\s*[sS](\d+)(?!e)/i); // Matches cases like "ed, edd n eddy S01"
+    clean.match(/(.*?)\s*[sS](\d+)(?!e)/i);
 
   if (seriesMatch) {
     const titleRaw = seriesMatch[1];
     const seasonNum = parseInt(seriesMatch[2] || 1, 10);
-    const episodeNum = seriesMatch[3] ? parseInt(seriesMatch[3], 10) : 1; // Default to episode 1 if format is just Season/S01
+    const episodeNum = seriesMatch[3] ? parseInt(seriesMatch[3], 10) : 1;
 
     return {
       type: "series",
@@ -302,7 +301,6 @@ async function run() {
 
   console.log(`\n📡 Total pooled video files across all accounts: ${liveFiles.length}`);
 
-  // Load existing database to preserve durations, sizes, and stream groupings
   const cachedStreams = new Map();
   if (fs.existsSync("database.json")) {
     try {
@@ -389,9 +387,11 @@ async function run() {
     const parsed = parseFilename(file.filename);
     const meta = await resolveMetadata(parsed);
 
-    let streamKey = meta?.id || `custom_${Math.random().toString(36).substring(2, 8)}`;
+    let streamKey = meta?.id || `custom_${normalize(parsed.title)}`;
     if (parsed.type === "series" && meta?.id) {
       streamKey = `${meta.id}:${parsed.season}:${parsed.episode}`;
+    } else if (parsed.type === "series") {
+      streamKey = `custom_${normalize(parsed.title)}:s${parsed.season}`;
     }
 
     const standardizedPoster = (meta?.id && meta.id.startsWith("tt"))
@@ -410,7 +410,7 @@ async function run() {
     }
 
     const displayTitle = parsed.type === "series"
-      ? `S${parsed.season} E${parsed.episode} [${edition}]`
+      ? `${meta?.name || parsed.title} S${parsed.season} E${parsed.episode} [${edition}]`
       : `${meta?.name || parsed.title} [${edition}]`;
 
     const streamExists = newDb[streamKey].streams.some(s => s.url === directUrl);
@@ -422,7 +422,6 @@ async function run() {
         filename: file.filename
       };
       
-      // Inherit from cache if available, or parse size from file listing
       if (cached && cached.duration) newItem.duration = cached.duration;
       if (cached && cached.size) newItem.size = cached.size;
       else if (file.fileSize) newItem.size = parseInt(file.fileSize, 10);
@@ -431,7 +430,6 @@ async function run() {
     }
   }
 
-  // Sort split streams sequentially (Part 1 -> Part 2 -> Part 3)
   for (const entry of Object.values(newDb)) {
     if (entry.streams && entry.streams.length > 1) {
       entry.streams.sort((a, b) => {
