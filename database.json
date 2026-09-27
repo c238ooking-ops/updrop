@@ -305,6 +305,22 @@
       }
     ]
   },
+  "tt0156985": {
+    "meta": {
+      "name": "Sadak",
+      "poster": "https://images.metahub.space/poster/medium/tt0156985/img",
+      "type": "movie"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "Sadak [1080P]",
+        "url": "https://www.udrop.com/file/Q4Eu/Sadak%201080p%201991-1080p.mp4",
+        "filename": "Sadak 1080p 1991-1080p.mp4",
+        "size": 3385599673
+      }
+    ]
+  },
   "tt0243559": {
     "meta": {
       "name": "Sikandar",
