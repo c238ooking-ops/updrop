@@ -245,6 +245,22 @@
       }
     ]
   },
+  "tt0107311": {
+    "meta": {
+      "name": "Khalnayak",
+      "poster": "https://images.metahub.space/poster/medium/tt0107311/img",
+      "type": "movie"
+    },
+    "streams": [
+      {
+        "name": "uDrop",
+        "title": "Khalnayak [2160P]",
+        "url": "https://www.udrop.com/file/QnUG/Khalnayak.1993.2160p.ZEE5.WEB-DL.AAC2.0.H.265-YamRaaJ.mkv",
+        "filename": "Khalnayak.1993.2160p.ZEE5.WEB-DL.AAC2.0.H.265-YamRaaJ.mkv",
+        "size": 3068429012
+      }
+    ]
+  },
   "tt32338669": {
     "meta": {
       "name": "Mutiny",
